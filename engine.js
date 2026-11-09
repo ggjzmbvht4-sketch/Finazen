@@ -1,3 +1,4 @@
+import {emptyPortfolio,validatePortfolio} from './portfolio.js';
 export const TYPES={income:'Einnahmen',expense:'Fixkosten',budget:'Budgets',investment:'Investments',reserve:'Rücklagen'};
 export const FREQUENCIES={0:'Einmalig',1:'Monatlich',3:'Quartalsweise',6:'Halbjährlich',12:'Jährlich'};
 export const uid=()=>crypto.randomUUID();
@@ -6,7 +7,7 @@ export const money=x=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'
 export const monthIndex=m=>Number(m.slice(0,4))*12+Number(m.slice(5,7))-1;
 export const monthAdd=(m,n)=>{const i=monthIndex(m)+n;return `${Math.floor(i/12)}-${String(i%12+1).padStart(2,'0')}`;};
 export const monthLabel=m=>new Date(m+'-15T12:00:00').toLocaleDateString('de-DE',{month:'long',year:'numeric'});
-export const emptyState=()=>({schema:1,name:'Meine Finanzplanung',anchor:new Date().toISOString().slice(0,7),openingCash:0,entries:[],reserves:[],actuals:{},notes:[],updatedAt:new Date().toISOString()});
+export const emptyState=()=>({schema:1,name:'Meine Finanzplanung',anchor:new Date().toISOString().slice(0,7),openingCash:0,entries:[],reserves:[],actuals:{},notes:[],portfolio:emptyPortfolio(),updatedAt:new Date().toISOString()});
 export function due(e,m){const d=monthIndex(m)-monthIndex(e.start);return !e.pending&&d>=0&&(!e.end||m<=e.end)&&(e.interval===0?d===0:d%e.interval===0);}
 export function dayDate(e,m){const last=new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0).getDate();return `${m}-${String(Math.min(e.day||1,last)).padStart(2,'0')}`;}
 export function transactions(state,m,mode='forecast',scenario={}){
@@ -36,6 +37,7 @@ export function validateState(s){
  for(const r of s.reserves){if(typeof r.id!=='string'||rs.has(r.id)||typeof r.name!=='string'||!r.name.trim()||!amount(r.opening)||!amount(r.target))throw Error('Ungültige Rücklage.');rs.add(r.id);}
  for(const e of s.entries){if(typeof e.id!=='string'||ids.has(e.id)||!Object.hasOwn(TYPES,e.type)||typeof e.name!=='string'||!e.name.trim()||!amount(e.amount)||!Number.isInteger(e.interval)||!Object.hasOwn(FREQUENCIES,e.interval)||!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.start)||e.start<s.anchor||e.end&&(!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.end)||e.end<e.start)||!Number.isInteger(e.day)||e.day<1||e.day>31||e.reserveId&&!rs.has(e.reserveId)||e.type==='reserve'&&!e.reserveId)throw Error('Ungültiger Eintrag: '+(e.name||'?'));ids.add(e.id);}
  for(const [key,a]of Object.entries(s.actuals)){const split=key.lastIndexOf(':');if(!ids.has(key.slice(0,split))||!/^\d{4}-(0[1-9]|1[0-2])$/.test(key.slice(split+1))||!amount(a?.amount))throw Error('Ungültige Ist-Buchung.');}
+ if(s.portfolio===undefined)s.portfolio=emptyPortfolio();validatePortfolio(s.portfolio,s.entries);
  return s;
 }
 export function sampleState(){const s=emptyState();s.anchor='2026-01';s.openingCash=450000;const r={id:uid(),name:'Jahresrechnungen',opening:30000,target:120000};s.reserves=[r];
