@@ -1,0 +1,11 @@
+export class ReportStore{
+ constructor(){this.opening=null;}
+ open(){if(!this.opening)this.opening=new Promise((resolve,reject)=>{const req=indexedDB.open('kontur-reports-v1',1);req.onupgradeneeded=()=>{for(const name of ['documents','analyses'])req.result.createObjectStore(name,{keyPath:'key'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>{this.opening=null;reject(Error('Dokumentspeicher nicht verfügbar. Browser-Speicher prüfen.'));};});return this.opening;}
+ async all(store,scope){const db=await this.open();return new Promise((resolve,reject)=>{const tx=db.transaction(store,'readonly'),req=tx.objectStore(store).getAll();req.onsuccess=()=>resolve(req.result.filter(x=>x.scope===scope));req.onerror=()=>reject(Error('Dokumentcache konnte nicht gelesen werden.'));});}
+ async put(store,scope,id,data){const db=await this.open();return new Promise((resolve,reject)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).put({key:scope+'|'+id,scope,id,...data});tx.oncomplete=()=>resolve();tx.onerror=()=>reject(Error('Dokument konnte auf diesem Gerät nicht gespeichert werden. Speicherplatz prüfen.'));});}
+ async remove(store,scope,id){const db=await this.open();return new Promise((resolve,reject)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).delete(scope+'|'+id);tx.oncomplete=resolve;tx.onerror=()=>reject(Error('Lokaler Eintrag konnte nicht entfernt werden.'));});}
+}
+export class ReportApi{
+ constructor(cloud){this.cloud=cloud;}
+ async call(action,values={},form=null){if(!this.cloud.session)throw Error('Bitte zuerst mit Supabase anmelden.');await this.cloud.token();const response=await fetch(this.cloud.config.url+'/functions/v1/investment-reports',{method:'POST',headers:{apikey:this.cloud.config.key,Authorization:'Bearer '+this.cloud.session.access_token,...(form?{}:{'Content-Type':'application/json'})},body:form||JSON.stringify({action,...values}),signal:AbortSignal.timeout(action==='analyse'?125000:60000)});if(!response.ok){let body;try{body=await response.json();}catch{}throw Error(body?.error||'Berichte-Dienst nicht erreichbar ('+response.status+'). SQL, Edge Function und ALLOWED_ORIGINS prüfen.');}return action==='download'?response.blob():response.json();}
+}
