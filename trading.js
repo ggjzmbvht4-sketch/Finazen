@@ -1,3 +1,4 @@
+import {attachTradeCash,rebuildCash} from './cash.js';
 // Trades are investment records, never broker orders. Money is integer EUR cents.
 import {today,quoteRecord,validatePortfolio,recordComposition,instrumentIdentity,newAsset} from './portfolio.js';
 const scale=100000000;
@@ -31,23 +32,23 @@ export function saveTrades(portfolio,inputs,entries=[]){
   if(!Number.isSafeInteger(feeAmount)||feeAmount<0||feeAmount>1e14)throw Error('Gebühr prüfen.');
   const e={id:old?.id||crypto.randomUUID(),assetId:a.id,type:input.side==='buy'?'contribution':'withdrawal',trade:input.side,quantityDelta:qty*(input.side==='buy'?1:-1),priceMicros:Math.round(price*1e6),fxMicros:Math.round(fx*1e6),feeAmount,amount,date:input.date,note:String(input.note||''),createdAt:old?.createdAt||new Date().toISOString()};
   if(input.sourceKey||old?.sourceKey){if(input.side!=='buy')throw Error('Eine zugeordnete Sparrate muss ein Kauf bleiben.');e.sourceKey=input.sourceKey||old.sourceKey;}
-  if(old)p.events=p.events.filter(x=>x.id!==old.id);p.events.push(e);p.quotes=p.quotes.filter(q=>q.tradeId!==e.id);
+  if(old){p.events=p.events.filter(x=>x.id!==old.id&&x.linkedTradeId!==old.id);if(old.planSourceKey)e.planSourceKey=old.planSourceKey;}p.events.push(e);const funding=Object.hasOwn(input,'cashAssetId')?input.cashAssetId:old?.cashAssetId;if(funding){if(e.sourceKey||e.planSourceKey)throw Error('Sparratenzuordnung vor einer Umstellung auf Pie-Cash lösen.');attachTradeCash(p,e,funding);}p.quotes=p.quotes.filter(q=>q.tradeId!==e.id);
   if(input.recordQuote){const q=quoteRecord(a,{price,fx,asOf:e.date,source:'statement',note:'Ausführungskurs · '+(input.side==='buy'?'Kauf':'Verkauf')});q.tradeId=e.id;p.quotes.push(q);}refresh(p,a);parents.add(a.parentId);
  }
- checkHoldings(p);validatePortfolio(p,entries);for(const id of parents)if(id)recordComposition(p,id);return p;
+ rebuildCash(p);checkHoldings(p);validatePortfolio(p,entries);for(const id of parents)if(id)recordComposition(p,id);return p;
 }
-export function deleteTrade(portfolio,id,entries=[]){const p=structuredClone(portfolio),e=p.events.find(e=>e.id===id);if(!e?.trade)throw Error('Handelsbuchung nicht gefunden.');const a=p.assets.find(a=>a.id===e.assetId);p.events=p.events.filter(x=>x.id!==id);p.quotes=p.quotes.filter(q=>q.tradeId!==id);refresh(p,a);checkHoldings(p);validatePortfolio(p,entries);if(a.parentId)recordComposition(p,a.parentId);return p;}
+export function deleteTrade(portfolio,id,entries=[]){const p=structuredClone(portfolio),e=p.events.find(e=>e.id===id);if(!e?.trade)throw Error('Handelsbuchung nicht gefunden.');const a=p.assets.find(a=>a.id===e.assetId);p.events=p.events.filter(x=>x.id!==id&&x.linkedTradeId!==id);p.quotes=p.quotes.filter(q=>q.tradeId!==id);refresh(p,a);rebuildCash(p);checkHoldings(p);validatePortfolio(p,entries);if(a.parentId)recordComposition(p,a.parentId);return p;}
 export function reconcileHoldings(portfolio,rows,date=today(),entries=[]){
  const p=structuredClone(portfolio),parents=new Set();for(const row of rows){const a=p.assets.find(a=>a.id===row.assetId);if(!a||a.valuationMode!=='units')throw Error('Wertpapierposition fehlt.');initialize(p,a);const old=holdingAt(p,a,date);if(old===null)throw Error('Abgleich liegt vor dem Anfangsbestand.');const change=units(row.quantity)-Math.round(old*scale);if(!change)continue;
   p.events.push({id:crypto.randomUUID(),assetId:a.id,type:'adjustment',trade:'adjustment',quantityDelta:change,amount:0,feeAmount:0,date,note:'Bestandsabgleich · keine Kauf- oder Verkaufskosten bekannt',createdAt:new Date().toISOString()});refresh(p,a);parents.add(a.parentId);
  }checkHoldings(p);validatePortfolio(p,entries);for(const id of parents)if(id)recordComposition(p,id);return p;
 }
 export function setTargets(portfolio,pieId,rows,entries=[]){const p=structuredClone(portfolio),children=p.assets.filter(a=>a.parentId===pieId);if(!p.assets.some(a=>a.id===pieId&&a.kind==='pie')||children.length!==rows.length||new Set(rows.map(r=>r.assetId)).size!==children.length)throw Error('Alle Pie-Positionen genau einmal angeben.');let total=0;for(const a of children){const r=rows.find(r=>r.assetId===a.id),n=Number(r?.target);if(!Number.isFinite(n)||n<0||n>100)throw Error('Zielgewicht zwischen 0 und 100 % eingeben.');a.targetBps=Math.round(n*100);total+=a.targetBps;}if(total!==10000)throw Error('Die Zielgewichte müssen zusammen 100 % ergeben. Aktuell: '+total/100+' %.');validatePortfolio(p,entries);recordComposition(p,pieId);return p;}
-export function createSecurityPosition(portfolio,{name,isin='',symbol='',exchange='',currency='EUR',kind='stock',provider='',parentId='',quantity='0',paid=null,price=null,fx=1,date=today(),mode='buy',feeAmount=0},entries=[]){
+export function createSecurityPosition(portfolio,{name,isin='',symbol='',exchange='',currency='EUR',kind='stock',provider='',parentId='',quantity='0',paid=null,price=null,fx=1,date=today(),mode='buy',feeAmount=0,cashAssetId=''},entries=[]){
  let p=structuredClone(portfolio);const instrument={id:crypto.randomUUID(),name:String(name).trim(),isin:String(isin).trim().toUpperCase(),symbol:String(symbol).trim().toUpperCase(),exchange:String(exchange).trim().toUpperCase(),currency,sector:'',region:''};instrument.identity=instrumentIdentity(instrument);const existing=p.instruments.find(i=>i.identity===instrument.identity);if(!existing)p.instruments.push(instrument);const i=existing||instrument;
  if(p.assets.some(a=>a.instrumentId===i.id&&(a.parentId||'')===parentId&&(parentId||a.provider===provider)))throw Error('Diese Position ist bereits vorhanden. Dort einen Kauf hinzufügen.');
  const a=newAsset({name:instrument.name,kind,instrumentId:i.id,provider,parentId,quantity:mode==='opening'?quantity:'0',openingQuantity:mode==='opening'?quantity:'0',openingDate:mode==='opening'?date:'1900-01-01',openingCostKnown:mode!=='opening'||units(quantity)===0||paid!==null});p.assets.push(a);
- if(mode==='buy')p=saveTrades(p,[{assetId:a.id,side:'buy',quantity,price,fx,date,feeAmount,recordQuote:true}],entries);
+ if(mode==='buy')p=saveTrades(p,[{assetId:a.id,side:'buy',quantity,price,fx,date,feeAmount,cashAssetId,recordQuote:true}],entries);
  else {units(quantity);if(paid!==null)p.events.push({id:crypto.randomUUID(),assetId:a.id,type:'contribution',amount:paid,date,note:'Übernommene Einzahlungen · Anfangsbestand'});if(price!==null)p.quotes.push(quoteRecord(a,{price:Number(price),fx:currency==='EUR'?1:Number(fx),asOf:date}));validatePortfolio(p,entries);if(parentId)recordComposition(p,parentId);}
  return {portfolio:p,assetId:a.id};
 }
