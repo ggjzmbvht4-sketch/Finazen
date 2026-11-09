@@ -1,0 +1,16 @@
+const KEY='kontur-cloud-v1';
+export class Cloud{
+ constructor(){this.config=JSON.parse(localStorage.getItem(KEY)||'null');this.session=JSON.parse(localStorage.getItem('kontur-session-v1')||'null');this.refreshing=null;}
+ configure(url,key){const u=new URL(url);if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw Error('Bitte die HTTPS-Projekt-URL ohne zusätzlichen Pfad eingeben.');if(!key||key.includes('service_role')||key.startsWith('sb_secret_'))throw Error('Bitte nur den öffentlichen Publishable- oder anon-Key verwenden.');try{const role=JSON.parse(atob(key.split('.')[1])).role;if(role&&role!=='anon')throw Error('Dieser Schlüssel ist kein öffentlicher anon-Key.');}catch(e){if(e.message.includes('anon-Key'))throw e;}this.config={url:u.origin,key};localStorage.setItem(KEY,JSON.stringify(this.config));this.clearSession();}
+ saveSession(s){this.session={...s,expires_at:Math.floor(Date.now()/1000)+(s.expires_in||3600)};localStorage.setItem('kontur-session-v1',JSON.stringify(this.session));}
+ clearSession(){this.session=null;localStorage.removeItem('kontur-session-v1');}
+ async request(path,{method='GET',body,auth=false}={}){if(!this.config)throw Error('Supabase zuerst verbinden.');if(auth)await this.token();const response=await fetch(this.config.url+path,{method,headers:{apikey:this.config.key,'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+this.session.access_token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});let data;try{data=await response.json();}catch{data=null;}if(!response.ok)throw Error(data?.msg||data?.message||data?.error_description||'Verbindung fehlgeschlagen ('+response.status+').');return data;}
+ async token(){if(!this.session)throw Error('Bitte anmelden.');if(this.session.expires_at>Date.now()/1000+60)return;if(!this.refreshing)this.refreshing=this.request('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:this.session.refresh_token}}).then(s=>this.saveSession(s)).finally(()=>this.refreshing=null);await this.refreshing;}
+ async signIn(email,password){const s=await this.request('/auth/v1/token?grant_type=password',{method:'POST',body:{email,password}});this.saveSession(s);return s.user;}
+ async signUp(email,password){return this.request('/auth/v1/signup',{method:'POST',body:{email,password}});}
+ async recover(email){return this.request('/auth/v1/recover',{method:'POST',body:{email}});}
+ async reset(email,token,password){const s=await this.request('/auth/v1/verify',{method:'POST',body:{email,token,type:'recovery'}});this.saveSession(s);await this.request('/auth/v1/user',{method:'PUT',auth:true,body:{password}});}
+ async signOut(){try{if(this.session)await this.request('/auth/v1/logout',{method:'POST',auth:true});}finally{this.clearSession();}}
+ async load(){await this.token();const data=await this.request('/rest/v1/finance_plans?select=data,revision,updated_at&owner_id=eq.'+encodeURIComponent(this.session.user.id),{auth:true});return data[0]||null;}
+ async save(data,revision){return this.request('/rest/v1/rpc/save_finance_plan',{method:'POST',auth:true,body:{payload:data,expected_revision:revision}});}
+}
