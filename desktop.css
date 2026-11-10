@@ -1,0 +1,22 @@
+:root{font-size:var(--user-size,14px)}
+:root[data-theme=light]{color-scheme:light;--bg:#f4f5f7;--surface:#fff;--text:#1e2a36;--muted:#687683;--line:#dce2e8;--green:var(--accent);--green2:var(--accent);--mint:#edf2f4}
+:root[data-theme=dark]{color-scheme:dark;--bg:#10171f;--surface:#1b2530;--text:#e7edf5;--muted:#afbdca;--line:#40505f;--green:#a9d3c5;--green2:#b4dfcf;--mint:#273746}
+body,.main-shell,.topbar,.mobile-nav,dialog{background:var(--bg)!important;color:var(--text)!important}
+.card,.kpi,.btn,.chip,select,input,textarea,.dialog-head,.dialog-body,.planning-card,.portfolio-home-strip,.settings-grid section{background:var(--surface)!important;color:var(--text)!important;border-color:var(--line)!important}
+.btn.primary,.chip.active{background:var(--accent)!important;color:#fff!important}.page-heading h1,h2,h3,.reserve-amount{color:var(--text)!important}.subtitle,.form-help,small{color:var(--muted)!important}
+.sidebar{background:var(--surface)!important;color:var(--text)!important;border-right:1px solid var(--line)}
+.main-shell main{max-width:none;padding:32px 38px}.main-shell{min-width:0}
+.matrix-wrap{max-height:72vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.matrix{border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums;min-width:1500px;width:100%}
+.matrix th,.matrix td{padding:0;border-bottom:1px solid var(--line);border-right:1px solid var(--line);white-space:nowrap}
+.matrix thead th{position:sticky;top:0;z-index:3;background:var(--surface);padding:14px}
+.matrix th:first-child{position:sticky;left:0;z-index:2;background:var(--surface);min-width:220px;max-width:300px;padding:10px 14px;white-space:normal}
+.matrix thead th:first-child{z-index:4}
+.matrix td{text-align:right;min-width:118px}.matrix td:last-child{padding:10px}
+.matrix .cell{width:100%;min-height:44px;padding:10px 12px;text-align:right}.matrix .cell:hover{background:var(--mint)}
+.matrix small{display:block;font-size:.75rem}.matrix-total td{padding:12px!important;font-weight:650;background:var(--mint)}.matrix-group th{background:var(--mint)!important;font-weight:650}
+[data-density=compact] .matrix .cell{min-height:30px;padding:6px 10px}[data-density=compact] .card{padding:16px}
+[data-contrast=high]{--muted:var(--text)!important;--line:#768a9a!important}
+[data-hide=yes] .amount,[data-hide=yes] .balance-number,[data-hide=yes] .ledger-hero h1,[data-hide=yes] .kpi strong,[data-hide=yes] .reserve-amount{filter:blur(7px);user-select:none}
+.mobile-nav{display:none!important}
+.actions,.work-links{gap:8px}.page-heading{margin-bottom:20px}.sidebar .nav-item.active{background:var(--mint);color:var(--text)}

@@ -12,7 +12,7 @@ export const emptyState=()=>({schema:1,name:'Meine Finanzplanung',anchor:new Dat
 export function due(e,m){const d=monthIndex(m)-monthIndex(e.start);return !e.pending&&d>=0&&(!e.end||m<=e.end)&&(e.interval===0?d===0:d%e.interval===0);}
 export function dayDate(e,m){const last=new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0).getDate();return `${m}-${String(Math.min(e.day||1,last)).padStart(2,'0')}`;}
 export function transactions(state,m,mode='forecast',scenario={}){
- return state.entries.filter(e=>due(e,m)||(mode!=='plan'&&Object.hasOwn(state.actuals,`${e.id}:${m}`))).map(e=>{const a=state.actuals[`${e.id}:${m}`];const planned=due(e,m)?e.amount:0;const amount=mode==='actual'?(a?.amount??0):mode==='forecast'&&a?a.amount:planned;return {...e,date:dayDate(e,m),planned,amount,booked:!!a,actual:a?.amount??null};}).sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name));
+ return state.entries.filter(e=>(!e.pending&&(due(e,m)||Object.hasOwn(e.planOverrides||{},m)))||(mode!=='plan'&&Object.hasOwn(state.actuals,`${e.id}:${m}`))).map(e=>{const a=state.actuals[`${e.id}:${m}`];const planned=e.pending?0:(e.planOverrides?.[m]??(due(e,m)?e.amount:0));const amount=mode==='actual'?(a?.amount??0):mode==='forecast'&&a?a.amount:planned;return {...e,date:dayDate(e,m),planned,amount,booked:!!a,actual:a?.amount??null};}).sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name));
 }
 export function project(state,until,mode='forecast',scenario={}){
  if(monthIndex(until)-monthIndex(state.anchor)>600)throw Error('Maximal 50 Jahre planen.');
@@ -51,6 +51,7 @@ export function validateState(s){
  for(const e of s.entries){if(typeof e.id!=='string'||ids.has(e.id)||!Object.hasOwn(TYPES,e.type)||typeof e.name!=='string'||!e.name.trim()||!amount(e.amount)||!Number.isInteger(e.interval)||!Object.hasOwn(FREQUENCIES,e.interval)||!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.start)||e.start<s.anchor||e.end&&(!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.end)||e.end<e.start)||!Number.isInteger(e.day)||e.day<1||e.day>31||e.reserveId&&!rs.has(e.reserveId)||e.type==='reserve'&&!e.reserveId)throw Error('Ungültiger Eintrag: '+(e.name||'?'));ids.add(e.id);}
  for(const [key,a]of Object.entries(s.actuals)){const split=key.lastIndexOf(':');if(!ids.has(key.slice(0,split))||!/^\d{4}-(0[1-9]|1[0-2])$/.test(key.slice(split+1))||!amount(a?.amount))throw Error('Ungültige Ist-Buchung.');}
  if(s.portfolio===undefined)s.portfolio=emptyPortfolio();validatePortfolio(s.portfolio,s.entries);
+ for(const e of s.entries)for(const [m,v] of Object.entries(e.planOverrides||{}))if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)||m<s.anchor||!Number.isSafeInteger(v)||v<0)throw Error('Monatsplan prüfen.');
  validatePlanning(s);return s;
 }
 export function sampleState(){const s=emptyState();s.anchor='2026-01';s.openingCash=450000;const r={id:uid(),name:'Jahresrechnungen',opening:30000,target:120000};s.reserves=[r];
