@@ -1,3 +1,4 @@
+import {budgetLine,validatePlanning} from './planning.js';
 import {emptyPortfolio,validatePortfolio} from './portfolio.js';
 export const TYPES={income:'Einnahmen',expense:'Fixkosten',budget:'Budgets',investment:'Investments',reserve:'Rücklagen'};
 export const FREQUENCIES={0:'Einmalig',1:'Monatlich',3:'Quartalsweise',6:'Halbjährlich',12:'Jährlich'};
@@ -15,9 +16,21 @@ export function transactions(state,m,mode='forecast',scenario={}){
 }
 export function project(state,until,mode='forecast',scenario={}){
  if(monthIndex(until)-monthIndex(state.anchor)>600)throw Error('Maximal 50 Jahre planen.');
- const rows=[];let cash=state.openingCash;let balances=Object.fromEntries(state.reserves.map(r=>[r.id,r.opening||0]));
+ const rows=[];let previousHeld=0;let carries={};let cash=state.openingCash;let balances=Object.fromEntries(state.reserves.map(r=>[r.id,r.opening||0]));
  for(let m=state.anchor;m<=until;m=monthAdd(m,1)){
   const tx=transactions(state,m,mode,scenario);const totals=Object.fromEntries(Object.keys(TYPES).map(k=>[k,0]));
+  const envelopes={},movedByBudget=new Map();let held=0;
+  for(const t of tx)if(t.type==='reserve'&&t.budgetSource)movedByBudget.set(t.budgetSource,(movedByBudget.get(t.budgetSource)||0)+t.amount);
+  for(const t of tx.filter(t=>t.type==='budget')){
+   const moved=movedByBudget.get(t.id)||0;
+   const line=budgetLine(state,t,m,t.planned-moved,carries[t.id]||0);
+   if(mode==='plan')t.amount-=moved;
+   envelopes[t.id]=line;
+   if(mode==='forecast'){t.amount=line.forecast;held+=line.leftover;}
+   if(mode!=='plan'){t.envelope=true;t.items=state.actuals[t.id+':'+m]?.items?.filter(x=>mode!=='actual'||!x.pending);}
+   if(mode!=='plan')carries[t.id]=line.leftover;
+  }
+  for(const id of Object.keys(carries))if(!envelopes[id]){delete carries[id];}
   for(const t of tx)totals[t.type]+=t.amount;
   for(const type of ['income','expense','investment'])totals[type]=Math.max(0,totals[type]+(scenario[type]||0));
   const startCash=cash,startReserve=Object.values(balances).reduce((a,b)=>a+b,0);let released=0;
@@ -26,7 +39,7 @@ export function project(state,until,mode='forecast',scenario={}){
   for(const t of tx.filter(t=>t.type==='expense'&&t.reserveId)){const release=Math.min(balances[t.reserveId]||0,t.amount);balances[t.reserveId]=(balances[t.reserveId]||0)-release;released+=release;}
   const delta=totals.income-totals.expense-totals.budget-totals.investment;cash+=delta;
   const earmarked=Object.values(balances).reduce((a,b)=>a+b,0);
-  rows.push({month:m,tx,...totals,startCash,cash,earmarked,balances:{...balances},released,delta,free:cash-earmarked,freeDelta:delta-(earmarked-startReserve),out:totals.expense+totals.budget,booked:tx.filter(t=>t.booked).length});
+  rows.push({month:m,tx,...totals,startCash,cash,earmarked,balances:{...balances},envelopes,budgetHeld:held,released,delta,free:cash-earmarked-held,freeDelta:delta-(earmarked-startReserve)-(held-previousHeld),out:totals.expense+totals.budget,booked:tx.filter(t=>t.booked).length});previousHeld=held;
  }return rows;
 }
 export function yearRows(state,year,mode='forecast',scenario={}){return project(state,`${year}-12`,mode,scenario).filter(r=>r.month.startsWith(String(year)));}
@@ -38,7 +51,7 @@ export function validateState(s){
  for(const e of s.entries){if(typeof e.id!=='string'||ids.has(e.id)||!Object.hasOwn(TYPES,e.type)||typeof e.name!=='string'||!e.name.trim()||!amount(e.amount)||!Number.isInteger(e.interval)||!Object.hasOwn(FREQUENCIES,e.interval)||!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.start)||e.start<s.anchor||e.end&&(!/^\d{4}-(0[1-9]|1[0-2])$/.test(e.end)||e.end<e.start)||!Number.isInteger(e.day)||e.day<1||e.day>31||e.reserveId&&!rs.has(e.reserveId)||e.type==='reserve'&&!e.reserveId)throw Error('Ungültiger Eintrag: '+(e.name||'?'));ids.add(e.id);}
  for(const [key,a]of Object.entries(s.actuals)){const split=key.lastIndexOf(':');if(!ids.has(key.slice(0,split))||!/^\d{4}-(0[1-9]|1[0-2])$/.test(key.slice(split+1))||!amount(a?.amount))throw Error('Ungültige Ist-Buchung.');}
  if(s.portfolio===undefined)s.portfolio=emptyPortfolio();validatePortfolio(s.portfolio,s.entries);
- return s;
+ validatePlanning(s);return s;
 }
 export function sampleState(){const s=emptyState();s.anchor='2026-01';s.openingCash=450000;const r={id:uid(),name:'Jahresrechnungen',opening:30000,target:120000};s.reserves=[r];
  const add=(type,name,amount,interval=1,start='2026-01',extra={})=>s.entries.push({id:uid(),type,name,amount:cents(amount),interval,start,end:'',day:1,note:'Fiktives Beispiel',reserveId:'',...extra});

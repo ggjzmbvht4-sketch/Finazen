@@ -1,0 +1,15 @@
+:root { --control-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, input, select, option, textarea, .chip, summary, .mode-select {font-family:var(--control-font);letter-spacing:normal}
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible {outline:3px solid #498b73;outline-offset:2px}
+.plan-tabs {flex-wrap:wrap;margin-block:12px 20px}
+.planning-card {margin-bottom:16px;min-width:0}
+.planning-card h2 {margin-top:0}
+.planning-card details,form details {margin-block:14px}
+.planning-card summary,form summary {cursor:pointer;font-weight:600;padding:8px 0}
+.planning-card .reserve-detail {gap:12px;overflow-wrap:anywhere}
+.planning-card .reserve-detail strong {text-align:right}
+.strategy-line {padding:12px 0;border-bottom:1px solid #ccd9d2}
+.strategy-line small {display:block;margin-top:4px}
+dialog form select,dialog form input,dialog form textarea {min-width:0;max-width:100%;box-sizing:border-box}
+.select-search {width:100%;margin-top:6px}
+@media(max-width:700px){select,input:not([type=checkbox]),textarea {font-size:16px}.plan-tabs .chip,.planning-card button,summary {min-height:44px}.plan-tabs{gap:6px}.planning-card .actions{flex-wrap:wrap}.mobile-nav button span{font-size:10px}}

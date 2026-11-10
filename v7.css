@@ -1,0 +1,16 @@
+:root{--bg:#f1f4f2;--green:#123d37;--mint:#e0eee6;--radius:15px;--line:#d9e2da;--text:#182e28}
+body{font-feature-settings:"tnum";background:var(--bg);color:var(--text)}
+.main-shell main{max-width:1280px;margin:auto}
+.page-heading h1{font-weight:680;letter-spacing:-.045em}
+.ledger-hero{background:#153b35;color:#f6faf6;border-radius:22px;padding:clamp(22px,4vw,48px);margin:10px 0 20px;overflow:hidden}
+.ledger-hero p,.ledger-hero small{color:#c4dbd2}.ledger-hero h1{color:#fff;font-size:clamp(36px,6vw,72px);font-weight:600;letter-spacing:-.055em;margin:.2em 0}
+.ledger-hero>div{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px}.ledger-hero .reserve-detail{border-color:#52726a;display:grid;gap:5px}.ledger-hero .reserve-detail span{color:#d8e8df}.ledger-hero .reserve-detail strong{color:white;font-size:1.3rem}
+.work-links{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.work-links .btn{background:var(--surface);border:1px solid var(--line)}
+.import-row{border-top:1px solid var(--line);padding:10px 0}
+.mobile-nav{grid-template-columns:repeat(4,minmax(0,1fr))}
+button,select,input,textarea{font-family:inherit}.btn,select{min-height:44px}
+@media(max-width:700px){.ledger-hero>div{gap:12px}.mobile-nav button{min-width:0}.work-links{gap:6px}.work-links .btn{flex:1 1 auto}.card{min-width:0}.actions{flex-wrap:wrap}.main-shell main{overflow-wrap:anywhere}}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--surface:#1b302a;--bg:#10231e;--line:#40594f;--text:#eef6f0;--muted:#b3c7bc;--mint:#25483a;--green:#9cdbbd;--green2:#a2dbc2}
+body,.main-shell,.topbar,.mobile-nav,dialog{background:#10231e;color:var(--text)}.card,.kpi,.btn,.chip,.section-toolbar,select,input,textarea,.dialog-head,.dialog-body,.planning-card,.portfolio-home-strip,.settings-grid section{background:#1b302a;color:#eef6f0;border-color:#40594f}.btn.primary,.chip.active{background:#b6e4c7;color:#122b20}.sidebar,.balance-card,.ledger-hero{background:#153b35;color:white}.subtitle,.form-help,small{color:#b3c7bc}.page-heading h1,h2,h3,.reserve-amount{color:#eef6f0}}
+.task-line{display:flex;width:100%;text-align:left;align-items:center;justify-content:space-between;padding:15px 0;gap:12px;border-bottom:1px solid var(--line)}
+.task-line span{color:var(--muted)}
