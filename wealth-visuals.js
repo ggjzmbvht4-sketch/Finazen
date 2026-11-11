@@ -31,10 +31,16 @@ export function treemap(items){
  }
  split([...valid].sort((a,b)=>b.value-a.value),0,0,100,100);return result;
 }
+export function tileText(color){
+ const match=/^#([0-9a-f]{6})$/i.exec(color||'');if(!match)return '#173237';
+ const rgb=match[1].match(/../g).map(x=>parseInt(x,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+ const luminance=rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;
+ return (luminance+.05)/.05>1.05/(luminance+.05)?'#102b30':'#ffffff';
+}
 export function treemapHTML(items,esc,action='tile'){
  const total=items.reduce((n,x)=>n+x.value,0);
  if(!total)return '<div class="map-empty">Für diese Darstellung fehlen positive Werte.</div>';
- return '<div class="wealth-map" aria-label="Gewichtung nach Flächenanteil">'+treemap(items).map(x=>'<button type="button" data-visual="'+action+'" data-id="'+esc(x.id)+'" class="map-tile" style="left:'+x.x+'%;top:'+x.y+'%;width:'+x.w+'%;height:'+x.h+'%;background:'+x.color+'" title="'+esc(x.name)+' · '+(x.value/total*100).toFixed(1)+' %"><span>'+esc(x.name)+'</span><strong>'+(x.value/total*100).toFixed(1)+' %</strong></button>').join('')+'</div>';
+ return '<div class="wealth-map" aria-label="Gewichtung nach Flächenanteil">'+treemap(items).map(x=>'<button type="button" data-visual="'+action+'" data-id="'+esc(x.id)+'" class="map-tile" style="left:'+x.x+'%;top:'+x.y+'%;width:'+x.w+'%;height:'+x.h+'%;background:'+x.color+';--tile-text:'+tileText(x.color)+'" title="'+esc(x.name)+' · '+(x.value/total*100).toFixed(1)+' %"><span>'+esc(x.name)+'</span><strong>'+(x.value/total*100).toFixed(1)+' %</strong></button>').join('')+'</div>';
 }
 export function historyChart(rows,format){
  if(rows.length<2)return '<p class="chart-empty">Mit datierten Wertständen entsteht hier dein Depotverlauf.</p>';

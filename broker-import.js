@@ -43,5 +43,5 @@ export function importBroker(state,rows,choices){
   if(r.side==='dividend')p.events.push({id:crypto.randomUUID(),assetId:id,type:'distribution',amount:r.amount,date:r.date,note:'Trading212 · Netto laut Export',brokerKey:r.key});
   else {p=saveTrades(p,[{assetId:id,side:r.side,date:r.date,quantity:r.quantity,price:r.price,fx:r.fx,feeAmount:r.feeAmount,recordQuote:true,note:'Trading212 CSV'}],s.entries);
    p.events.filter(e=>e.assetId===id&&e.trade===r.side).at(-1).brokerKey=r.key;}
- }s.portfolio=p;return s;
+ }if(p.events.length!==state.portfolio.events.length)p.lastImportedAt=new Date().toISOString();s.portfolio=p;return s;
 }

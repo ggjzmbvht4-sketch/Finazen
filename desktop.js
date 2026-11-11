@@ -10,14 +10,14 @@ export function desktop(ctx){
  let editBase='',benchmark=[];
  const pref=()=>{try{return JSON.parse(localStorage.getItem('kontur-appearance')||'{}');}catch{return {};}};
  function apply(){
-  const p=pref(),dark=p.theme==='dark'||(!p.theme||p.theme==='dark')||p.theme==='system'&&matchMedia('(prefers-color-scheme:dark)').matches;
+  const p=pref(),dark=p.theme==='dark'||p.theme==='system'&&matchMedia('(prefers-color-scheme:dark)').matches;
   document.documentElement.dataset.theme=dark?'dark':'light';document.documentElement.dataset.density=p.density||'comfortable';document.documentElement.dataset.contrast=p.contrast||'normal';document.documentElement.dataset.hide=p.hide?'yes':'no';
-  document.documentElement.style.setProperty('--accent',{green:'#11d9bf',blue:dark?'#71aaff':'#245bba',violet:dark?'#bf9bff':'#7050b2',petrol:dark?'#62cfdb':'#156b79'}[p.color]||'#11d9bf');
+  document.documentElement.style.setProperty('--accent',{green:dark?'#62cec3':'#176f6d',blue:dark?'#71aaff':'#245bba',violet:dark?'#bf9bff':'#7050b2',petrol:dark?'#62cfdb':'#156b79'}[p.color]||(dark?'#62cec3':'#176f6d'));
   document.documentElement.style.setProperty('--user-size',(p.size||14)+'px');
  }
  apply();matchMedia('(prefers-color-scheme:dark)').addEventListener('change',apply);
  function settings(){
-  const p=pref();return `<section class="card"><h2>Darstellung und Start</h2><form id="desk-preferences"><div class="form-grid">${select('theme','Darstellung',[['system','System'],['light','Hell'],['dark','Dunkel']],p.theme||'dark')}${select('color','Akzentfarbe',[['green','Türkis'],['blue','Blau'],['violet','Violett'],['petrol','Petrol']],p.color||'green')}${select('density','Zeilenabstand',[['comfortable','Großzügig'],['compact','Kompakt']],p.density||'comfortable')}${select('contrast','Kontrast',[['normal','Standard'],['high','Hoch']],p.contrast||'normal')}${select('size','Schriftgröße',[['14','14 px'],['16','16 px'],['18','18 px']],String(p.size||14))}${select('start','Startansicht',[['home','Übersicht'],['reserves','Jahresplanung'],['investments','Portfolio'],['wealth','Advisor']],p.start||'home')}</div><label class="checkbox"><input name="hide" type="checkbox" ${p.hide?'checked':''}>Geldbeträge verdecken</label><button class="btn primary">Darstellung speichern</button></form><p>Diese Auswahl gilt für diesen Browser.</p></section>`;
+  const p=pref();return `<section class="card"><h2>Darstellung und Start</h2><form id="desk-preferences"><div class="form-grid">${select('theme','Darstellung',[['system','System'],['light','Hell'],['dark','Dunkel']],p.theme||'light')}${select('color','Akzentfarbe',[['green','Türkis'],['blue','Blau'],['violet','Violett'],['petrol','Petrol']],p.color||'green')}${select('density','Zeilenabstand',[['comfortable','Großzügig'],['compact','Kompakt']],p.density||'comfortable')}${select('contrast','Kontrast',[['normal','Standard'],['high','Hoch']],p.contrast||'normal')}${select('size','Schriftgröße',[['14','14 px'],['16','16 px'],['18','18 px']],String(p.size||14))}${select('start','Startansicht',[['home','Übersicht'],['reserves','Jahresplanung'],['investments','Portfolio'],['wealth','Advisor']],p.start||'home')}</div><label class="checkbox"><input name="hide" type="checkbox" ${p.hide?'checked':''}>Geldbeträge verdecken</label><button class="btn primary">Darstellung speichern</button></form><p>Diese Auswahl gilt für diesen Browser.</p></section>`;
  }
  function matrix(){
   const s=state(),rows=yearRows(s,month().slice(0,4),'forecast'),plan=yearRows(s,month().slice(0,4),'plan');

@@ -36,9 +36,9 @@ export function workbench(ctx){
   return {p,central:range('base'),range,bands:known};
  }
  function dashboard(){
-  const {p,central,range,bands}=totals(),s=state(),f=project(s,month()).at(-1);
-  const history=s.portfolio.snapshots.slice(-12);
-  return `<section class="ledger-hero"><p>Vermögen · gebuchtes Geld im gewählten Monat + Depot heute</p><h1>${money(central)}</h1><small>${p.unvalued?p.unvalued+' Positionen ohne Bewertung':'Erfasste Bestände'}${bands.length?' · mit Modellband '+money(range('low'))+' bis '+money(range('high')):''}</small><div>${line('Frei am Monatsende · Prognose',money(f?.free||0))}${line('Für Rücklagen reserviert',money(f?.earmarked||0))}</div></section>`+(history.length>1?`<details><summary>Gespeicherte Depotwerte</summary>${history.map(x=>line(x.date,money(x.value))).join('')}</details>`:'');
+  const s=state(),p=portfolioSummary(s.portfolio),f=project(s,month()).at(-1),actual=project(s,month(),'actual').at(-1);
+  const known=s.portfolio.assets.length>0,asOf=p.leaves.map(x=>x.asOf).filter(Boolean).sort()[0];
+  return `<section class="cockpit-heading"><div><p class="eyebrow">DEIN FINANZCOCKPIT</p><h1>Alles Wichtige. Klar im Blick.</h1><p>Bestände und Planung mit ihrem jeweiligen Datenstand.</p></div><button class="btn primary" data-view="wealth">Zu deinen Anlagezielen →</button></section><div class="cockpit-stats"><section class="cockpit-stat portfolio-stat"><span>Erfasster Depotwert</span><strong>${known?money(p.value):'Noch offen'}</strong><small>${asOf?'Ältester Bewertungsstand '+esc(asOf):'Noch keine bewerteten Bestände'}${p.unvalued?' · Teilwert, '+p.unvalued+' Bewertungen fehlen':''}</small><button class="text-btn" data-view="investments">Portfolio ansehen →</button></section><section class="cockpit-stat"><span>Kontostand aus gebuchten Werten</span><strong>${money(actual?.cash??s.openingCash)}</strong><small>Gewählter Monat ${esc(month())} · Anfangssaldo + erfasste Buchungen; kein Bankabruf</small></section><section class="cockpit-stat"><span>Frei am Monatsende · Prognose</span><strong>${money(f?.free||0)}</strong><small>${esc(month())} · nach Rücklagen und geplanten Ausgaben</small></section><section class="cockpit-stat"><span>Für Rücklagen reserviert</span><strong>${money(f?.earmarked||0)}</strong><small>${esc(month())} · in der Kontoprognose enthalten, kein zusätzliches Vermögen</small></section></div>`;
  }
  async function open(id){
   const s=state(),r=project(s,month(),'actual').at(-1),targets=s.reserves.map(r=>[r.id,r.name]);
