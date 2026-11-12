@@ -11,6 +11,7 @@ export function portfolioPage(ctx){
  }
  const table=rows=>'<div class="table-scroll"><table class="advisor-table"><thead><tr><th>Position</th><th>Stück</th><th>Wert EUR</th><th>Ergebnis EUR</th><th>Wertstand</th><th>Aktion</th></tr></thead><tbody>'+rows.join('')+'</tbody></table></div>';
  function page(){
+  const broker=ctx.integrations?.portfolio();if(broker){const p=state().portfolio,others=p.assets.filter(a=>a.kind!=='pie'&&!/trading\s*212|t212/i.test(a.provider||p.assets.find(x=>x.id===a.parentId)?.provider||''));return broker+(others.length?'<section class="card"><h2>Weitere manuell erfasste Anlagen</h2><p>Separater Datenstand. Nicht zum Broker-Gesamtwert addiert.</p>'+table(others.map(a=>row(a)))+'</section>':'');}
   const p=state().portfolio,s=portfolioSummary(p),includes=a=>[a.name,a.provider,p.instruments.find(i=>i.id===a.instrumentId)?.isin].join(' ').toLowerCase().includes(search.toLowerCase());
   const pies=p.assets.filter(a=>a.kind==='pie'&&(includes(a)||p.assets.some(c=>c.parentId===a.id&&includes(c))));
   const roots=p.assets.filter(a=>!a.parentId&&a.kind!=='pie'&&includes(a));

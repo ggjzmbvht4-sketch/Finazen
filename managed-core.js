@@ -23,6 +23,7 @@ export function strategicWeights(p) {
 export function activeScore(facts, indicators) {
   const f=facts||{},keys=['roe','pe','debtToEquity','revenueGrowth'];
   if(keys.some(k=>!Number.isFinite(f[k])) || !(f.pe>0) || f.debtToEquity<0 || !Number.isFinite(indicators?.momentum20Pct)) return null;
+  const relative=f.sectorScore;if(relative?.version==='sector-percentiles-v12.1'&&Object.keys(relative.components||{}).length===5&&['quality','valuation','debt','growth','momentum'].every(k=>Number.isFinite(relative.components?.[k])&&relative.components[k]>=0&&relative.components[k]<=100))return {version:relative.version,value:Object.values(relative.components).reduce((a,b)=>a+b,0)/5,components:relative.components};
   const clamp=x=>Math.max(0,Math.min(100,x));
   const components={quality:clamp(f.roe*250),valuation:clamp(100-f.pe*2),debt:clamp(100-f.debtToEquity*50),growth:clamp(50+f.revenueGrowth*200),momentum:clamp(50+indicators.momentum20Pct*2)};
   return {version:RULES_VERSION,value:Object.values(components).reduce((n,x)=>n+x,0)/5,components};

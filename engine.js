@@ -1,3 +1,4 @@
+import {displayMonth} from './dates.js';
 import {budgetLine,validatePlanning} from './planning.js';
 import {emptyPortfolio,validatePortfolio} from './portfolio.js';
 export const TYPES={income:'Einnahmen',expense:'Fixkosten',budget:'Budgets',investment:'Investments',reserve:'Rücklagen'};
@@ -7,7 +8,7 @@ export const cents=x=>Math.round(Number(x)*100);
 export const money=x=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format((x||0)/100);
 export const monthIndex=m=>Number(m.slice(0,4))*12+Number(m.slice(5,7))-1;
 export const monthAdd=(m,n)=>{const i=monthIndex(m)+n;return `${Math.floor(i/12)}-${String(i%12+1).padStart(2,'0')}`;};
-export const monthLabel=m=>new Date(m+'-15T12:00:00').toLocaleDateString('de-DE',{month:'long',year:'numeric'});
+export const monthLabel=m=>displayMonth(m);
 export const emptyState=()=>({schema:1,name:'Meine Finanzplanung',anchor:new Date().toISOString().slice(0,7),openingCash:0,entries:[],reserves:[],actuals:{},notes:[],portfolio:emptyPortfolio(),updatedAt:new Date().toISOString()});
 export function due(e,m){const d=monthIndex(m)-monthIndex(e.start);return !e.pending&&d>=0&&(!e.end||m<=e.end)&&(e.interval===0?d===0:d%e.interval===0);}
 export function dayDate(e,m){const last=new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0).getDate();return `${m}-${String(Math.min(e.day||1,last)).padStart(2,'0')}`;}

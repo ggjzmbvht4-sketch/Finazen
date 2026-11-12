@@ -163,3 +163,17 @@ table{font-size:13px}th{font-size:11px;letter-spacing:.15px;background:var(--sof
 @media(max-width:900px){.mobile-nav{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));position:fixed;bottom:0;left:0;width:100%;z-index:20;padding-bottom:env(safe-area-inset-bottom)}.main-shell main{padding-bottom:100px}}
 @media(max-width:600px){.main-shell main{padding:24px 16px 100px}.chart-viewport .wealth-chart{width:780px!important;min-width:780px;max-width:none!important;margin:12px 0}.chart-hint{display:block;font-size:11px;color:var(--muted)}.managed-title .eyebrow{font-size:10px;letter-spacing:1px}.care-status>div{min-width:0;flex:1}.care-status>span:last-child{margin-left:24px}.cockpit-heading h1{font-size:27px!important}}
 .map-tile{color:var(--tile-text,#ffffff)!important}.map-tile strong{white-space:nowrap;font-size:clamp(11px,1vw,15px);line-height:1.3}
+/* V12 connection and budget cards also work inside the narrow advisor column. */
+.connection-details>summary{font-weight:650;cursor:pointer;padding:4px 0}
+.connection-details[open]>summary{margin-bottom:20px}
+.settings-content .btn+.btn,.connection-details .btn+.btn{margin-left:6px}
+.card .overview-metrics{grid-template-columns:repeat(3,minmax(0,1fr));margin:20px 0}
+.card .overview-metrics>div{min-width:0;padding:20px;overflow-wrap:normal;word-break:normal}
+.card .overview-metrics strong{font-size:clamp(18px,2vw,26px);line-height:1.35;white-space:normal}
+@media(max-width:700px){
+ .card .overview-metrics{grid-template-columns:1fr;gap:10px}
+ .card .overview-metrics>div{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px}
+ .card .overview-metrics small{max-width:55%}
+ .card .overview-metrics strong{font-size:20px;white-space:nowrap;text-align:right}
+ .settings-content .btn+.btn,.connection-details .btn+.btn{margin:6px 0 0}
+}
