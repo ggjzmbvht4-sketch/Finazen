@@ -177,3 +177,5 @@ table{font-size:13px}th{font-size:11px;letter-spacing:.15px;background:var(--sof
  .card .overview-metrics strong{font-size:20px;white-space:nowrap;text-align:right}
  .settings-content .btn+.btn,.connection-details .btn+.btn{margin:6px 0 0}
 }
+
+.scope-list{margin:12px 0 0;padding-left:18px}.scope-list li{margin:6px 0}.pie-card{border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0;background:var(--surface)}.pie-card h3{margin:0 0 8px}.pie-choices{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.pie-choices label{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-height:44px}.pie-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.pie-card .form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0}@media(max-width:800px){.pie-card .form-grid{grid-template-columns:1fr}}
