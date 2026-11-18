@@ -60,7 +60,7 @@ export function advisorUI(ctx){
  }
  function legacyPage(){
   const s=state(),goals=s.strategies||[];let g=goals.find(g=>g.id===selected)||goals[0];selected=g?.id||'';
-  const head='<div class="page-heading"><div><p class="eyebrow">VERMÖGEN BETREUEN</p><h1>Deine Anlagestrategien</h1><p>Ziel festlegen. Zusammensetzung prüfen. Bestand und nächste Einzahlung verfolgen.</p></div><button class="btn primary" data-design-start="">Anlageziel anlegen</button></div>';
+  const head='<div class="page-heading"><div><p class="eyebrow">VERMÖGEN BETREUEN</p><h1>Deine Anlagestrategien</h1><p>Ziel festlegen. Zusammensetzung prüfen. Bestand und nächste Einzahlung verfolgen.</p><p class="form-help">Modellwerkzeug — keine Anlageberatung.</p></div><button class="btn primary" data-design-start="">Anlageziel anlegen</button></div>';
   if(!g)return head+'<section class="advisor-empty card"><h2>Welches Vermögen möchtest du aufbauen?</h2><p>Lege ein Anlageziel mit Zeitraum, Sparrate und Risiko fest. Der Advisor ermittelt konkrete Aktien und ETFs und zeigt die vollständige Zusammensetzung vor der Übernahme.</p><button class="btn primary" data-design-start="">Erste Strategie anlegen</button></section>';
   const item=cache.get(key(g.id));
   if(!item&&cloud.session)void load(g.id);
