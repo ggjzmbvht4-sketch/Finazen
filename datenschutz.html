@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#153c35">
+<meta name="robots" content="noindex">
+<meta name="description" content="Datenschutzerklärung der App Kontur.">
+<title>Datenschutzerklärung · Kontur</title>
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<style>
+:root{--accent:#153c35;--bg:#f4f5f1;--surface:#fbfcf9;--text:#22302a;--muted:#5c6a60;--line:#dfe5d8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.65;font-size:15px}
+main{max-width:760px;margin:0 auto;padding:48px 22px 64px}
+a{color:var(--accent);font-weight:600}
+h1{color:var(--accent);font-size:30px;letter-spacing:-.5px;margin:6px 0 4px}
+h2{color:var(--accent);font-size:18px;margin:34px 0 8px}
+p,li{color:var(--text)}
+.eyebrow{font-size:11px;letter-spacing:2px;color:var(--muted);margin:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px 24px;margin-top:18px}
+ul{padding-left:20px}
+li{margin:6px 0}
+.note{background:#e7eedf;border-radius:12px;padding:14px 16px;font-size:13.5px;color:var(--accent)}
+footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted);display:flex;gap:18px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<main>
+<p class="eyebrow">KONTUR · PRIVATE FINANZ-APP</p>
+<h1>Datenschutzerklärung</h1>
+<p>Diese App wird privat und nicht kommerziell betrieben. Sie dient ausschließlich der persönlichen Finanzplanung. Stand: Februar 2026.</p>
+
+<h2>1. Verantwortlicher</h2>
+<p>Diese App wird privat betrieben. Verantwortlich im Sinne der DSGVO ist die Person, die diese App bereitstellt; die Kontaktdaten sind auf Nachfrage über die bekannten privaten Wege verfügbar. Es besteht kein kommerzielles Angebot und keine öffentliche Vermarktung.</p>
+
+<h2>2. Wo deine Daten gespeichert werden</h2>
+<div class="card">
+<h3 style="margin-top:0;color:var(--accent)">Lokal in deinem Browser (Standard)</h3>
+<p>Ohne Anmeldung liegen alle Planungsdaten (Einträge, Rücklagen, Investments, Ist-Buchungen) ausschließlich im lokalen Speicher (localStorage/IndexedDB) deines Browsers auf deinem Gerät. Es findet keine Übertragung statt.</p>
+<h3 style="color:var(--accent)">Supabase-Cloud (nur bei Anmeldung)</h3>
+<p>Wenn du dich freiwillig anmeldest, werden folgende Daten in einer Supabase-Datenbank (Serverstandort Frankfurt am Main, EU) gespeichert:</p>
+<ul>
+<li>E-Mail-Adresse und Passwort-Hash (Supabase Auth)</li>
+<li>Dein Finanzplan: Einträge, Rücklagen, Anlageziele, Ist-Buchungen</li>
+<li>Depot- und Portfoliodaten, die du selbst erfasst oder importierst</li>
+</ul>
+<p>Zugriff erfolgt ausschließlich über dein Konto (Row Level Security). Eine Weitergabe an Dritte findet nicht statt.</p>
+<h3 style="color:var(--accent)">Serverseitige Schlüssel (Secrets)</h3>
+<p>Trading212-API-Schlüssel sowie Wikifolio-Zugangsdaten werden — falls du sie hinterlegst — ausschließlich serverseitig als verschlüsselte Secrets in Supabase gespeichert und niemals in der App oder im Browser abgelegt.</p>
+</div>
+
+<h2>3. Externe Dienste bei Nutzung bestimmter Funktionen</h2>
+<ul>
+<li><strong>Kursabfragen:</strong> Abfragen von Wertpapierkursen und Kennzahlen erfolgen über Yahoo Finance, die Frankfurter Börse (Börse Frankfurt), SEC-XBRL (US-Unternehmensdaten) sowie optional Finnhub und Twelve Data. Übertragen werden dabei nur Wertpapierkennungen (Ticker/ISIN), keine personenbezogenen Daten.</li>
+<li><strong>KI-Funktionen (OpenRouter):</strong> Für KI-Analysen werden Portfolioangaben und dein Risikoprofil erst nach deiner ausdrücklichen Einwilligung an OpenRouter übertragen. Die Anfragen erfolgen mit der Einstellung <code>data_collection: deny</code>, sodass keine Daten zum Training oder zur Protokollierung beim Anbieter verwendet werden.</li>
+<li><strong>Supabase:</strong> Hosting und Authentifizierung (siehe Abschnitt 2).</li>
+</ul>
+
+<h2>4. Cookies und Tracking</h2>
+<p>Diese App verwendet keine Cookies, kein Tracking, keine Analyse-Werkzeuge und keine Werbung. Der Service Worker speichert ausschließlich App-Dateien für die Offline-Nutzung im Browser-Cache.</p>
+
+<h2>5. Deine Rechte</h2>
+<ul>
+<li><strong>Auskunft:</strong> Du kannst jederzeit Auskunft über deine gespeicherten Daten verlangen. Sämtliche lokalen Daten kannst du zudem jederzeit über die Exportfunktion (JSON-Sicherung) einsehen.</li>
+<li><strong>Löschung:</strong> Die App enthält eine eingebaute Kontolöschung beziehungsweise einen Account-Reset: Einstellungen → Datenverwaltung → „Kontur-Daten zurücksetzen“. Damit werden alle Cloud-Daten deines Kontos gelöscht. Lokale Daten entfernst du über die Browser-Einstellungen (Website-Daten löschen).</li>
+<li><strong>Berichtigung und Datenübertragbarkeit:</strong> Alle Daten lassen sich in der App bearbeiten und als JSON/CSV exportieren.</li>
+<li><strong>Beschwerde:</strong> Du hast das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu beschweren.</li>
+</ul>
+
+<h2>6. Keine Weitergabe</h2>
+<p>Deine Daten werden nicht verkauft, nicht weitergegeben und nicht zu Werbezwecken genutzt. Übertragungen an die oben genannten Dienste erfolgen nur, wenn du die entsprechende Funktion aktiv nutzt.</p>
+
+<p class="note">Da diese App privat betrieben wird, gibt es kein Auftragsverarbeitungsverhältnis mit Nutzern; die Verarbeitung erfolgt im Rahmen der persönlichen Nutzung (§ 2 Abs. 2 lit. c DSGVO / Haushaltsausnahme), soweit keine Cloud-Anmeldung erfolgt.</p>
+
+<footer>
+<a href="./">← Zur App</a>
+<a href="./risikohinweise.html">Risikohinweise</a>
+<span>Private Software — keine Anlageberatung</span>
+</footer>
+</main>
+</body>
+</html>
