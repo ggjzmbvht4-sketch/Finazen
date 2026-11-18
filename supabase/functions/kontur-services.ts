@@ -403,7 +403,7 @@ function parseWikifolioPortfolio(payload) {
     error.code = 'MIRROR_WEIGHTS';
     throw error;
   }
-  const positions = book.filter(row => row.key !== 'cash' && row.bps > 0).map(row => ({ isin: row.isin, name: row.name, weight: row.weight, total: undefined }));
+  const positions = book.filter(row => row.key !== 'cash' && row.bps > 0).map(row => ({ isin: row.isin, name: row.name, weightBps: row.bps }));
   if (!positions.length) {
     const error = new Error('Das Wikifolio enthält nur Cash. Der Pie bleibt unverändert.');
     error.code = 'MIRROR_CASH';
