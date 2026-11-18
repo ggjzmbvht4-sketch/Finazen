@@ -21,10 +21,12 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || SERVICE_KEY;
 const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "")
   .split(",").map((x) => x.trim()).filter(Boolean);
 
-// Alle Tabellen mit nutzereigenen Zeilen (owner_id), gemäß 001_base_schema.sql
-// und 012_v12_1.sql, verifiziert gegen das Projekt. finance_plans wird je nach
-// Aktion separat behandelt. advisor_jobs/advisor_runs existieren nicht.
+// Alle Tabellen mit nutzereigenen Zeilen (owner_id), gemäß 001_base_schema.sql,
+// 012_v12_1.sql und 014_advisor_jobs.sql, verifiziert gegen das Projekt.
+// finance_plans wird je nach Aktion separat behandelt.
 const DATA_TABLES = [
+  "advisor_jobs",
+  "advisor_runs",
   "v12_tasks",
   "v12_cost_events",
   "v12_pie_bindings",
