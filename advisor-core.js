@@ -1,5 +1,6 @@
 import {catalog} from './strategy.js';
-export const advisorDay=()=>new Date().toISOString().slice(0,10);
+// Datum in Europe/Berlin (identisch zum serverseitigen advisorDay), nicht UTC.
+export const advisorDay=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 export const advisorCanonical=x=>Array.isArray(x)?'['+x.map(advisorCanonical).join(',')+']':x&&typeof x==='object'?'{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+advisorCanonical(x[k])).join(',')+'}':JSON.stringify(x);
 export async function advisorHash(x){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(advisorCanonical(x))))].map(b=>b.toString(16).padStart(2,'0')).join('');}
 export function advisorProfile(raw){

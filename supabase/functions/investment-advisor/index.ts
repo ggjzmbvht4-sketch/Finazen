@@ -71,6 +71,9 @@ function activeScore(facts, indicators) {
 }
 function allocateModel(profile, candidates, market) {
   const target=strategicWeights(profile),positions=[],sectors=new Map(),currencies=new Map();
+  // Strukturell unerfüllbare Zusammensetzung früh erkennen und mit eigenem
+  // Fehlercode melden, damit der Betreuungszyklus nicht endlos wiederholt.
+  if(!candidates.some(u=>u.brokerConfirmed))throw new ServiceError('UNIVERSE_EMPTY','Keine bestätigten Produkte im Universum: Der Broker-Abgleich (Trading212-Instrumente) ist leer oder noch nicht gelaufen. Bestehendes Modell bleibt erhalten.');
   for(const [group,budget] of Object.entries(target)) {
     if(group==='cash'||!budget) continue;
     let left=budget;
@@ -88,7 +91,7 @@ function allocateModel(profile, candidates, market) {
       sectors.set(sector,(sectors.get(sector)||0)+weightBps);currencies.set(u.currency,(currencies.get(u.currency)||0)+weightBps);left-=weightBps;
       if(!left) break;
     }
-    if(left) throw Error('Keine belastbare Zusammensetzung: Für '+group+' fehlen bestätigte Produkte, Daten oder Spielraum innerhalb deiner Grenzen. Bestehendes Modell bleibt erhalten.');
+    if(left) throw new ServiceError('ALLOCATION_IMPOSSIBLE','Keine belastbare Zusammensetzung: Für '+group+' fehlen bestätigte Produkte, Daten oder Spielraum innerhalb deiner Grenzen. Bestehendes Modell bleibt erhalten.');
   }
   return {summary:profile.name,positions,cashWeightBps:target.cash,action:'hold',changeReason:'Regelbasierte Zielaufteilung '+RULES_VERSION,portfolioAssessment:'Modellstrategie; tatsächliche Bestände werden separat gepflegt.',optimizations:[],risks:['Modellwerte sind keine echten Depotbestände.','Verlusttragfähigkeit ist keine Verlustgarantie.','ETF-Durchschau und wirtschaftliches Währungsrisiko sind ohne bestätigte Daten unbekannt.'],sources:[...new Set(candidates.filter(u=>positions.some(x=>x.id===u.id)).map(u=>u.source).filter(Boolean))]};
 }
@@ -111,8 +114,13 @@ function marketPrice(m) {const v=m?.indicators?.last*m?.fx;if(!(v>0)||!Number.is
 function repricePosition(position,market){
  const next={...position},price=marketPrice(market),asOf=market.indicators.asOf;
  if(next.priceAsOf&&next.priceAsOf!==asOf){
-  const row=market.indicators.history?.find(x=>x.date===next.priceAsOf),fx=market.fxHistory?market.fxHistory[next.priceAsOf]:market.fx===1?1:null;
-  if(!row||!(fx>0))throw Error('Historischer Referenzkurs für Modellfortschreibung fehlt.');
+  const row=market.indicators.history?.find(x=>x.date===next.priceAsOf);
+  let fx=market.fxHistory?market.fxHistory[next.priceAsOf]:market.fx===1?1:null;
+  if(!row)throw Error('Historischer Referenzkurs für Modellfortschreibung fehlt.');
+  // FX-Historie fehlt für den Referenztag: auf den aktuellen FX-Kurs
+  // zurückfallen und vermerken, statt den Betreuungszyklus zu blockieren.
+  if(!(fx>0)&&market.fx>0){fx=market.fx;next.fxEstimated=true;}else delete next.fxEstimated;
+  if(!(fx>0))throw Error('Historischer Referenzkurs für Modellfortschreibung fehlt.');
   next.units*=next.priceEUR/(row.close*fx);
  }
  next.priceEUR=price;next.priceAsOf=asOf;next.valueCents=Math.round(next.units*price*100);return next;
@@ -171,7 +179,7 @@ function updateBenchmark(previous,instruments,market,weights,start,deposit,date)
   if(!pos){pos={id:u.id,units:0,priceEUR:price,priceAsOf:m.indicators.asOf};b.positions.push(pos);}pos.units+=amount/(price*100);b.cashCents-=amount;
  }
  b.valueCents=b.cashCents;
- for(const pos of b.positions){const m=market.find(m=>m.id===pos.id);if(!m||m.error||m.indicators?.stale)throw Error('Benchmark-Bewertung unvollständig.');b.valueCents+=Math.round(pos.units*marketPrice(m)*100);}
+ for(const pos of b.positions){const m=market.find(x=>x.id===pos.id);if(!m||m.error||m.indicators?.stale)throw Error('Benchmark-Bewertung unvollständig.');b.valueCents+=Math.round(pos.units*marketPrice(m)*100);}
  b.instruments=instruments;b.weights=weights;b.asOf=date;b.label='Unverändertes Referenzportfolio · gleiche Modell-Einzahlungen';
  b.history=[...b.history.filter(x=>x.date!==date),{date,valueCents:b.valueCents,paidCents:b.paidCents}].slice(-3660);return b;
 }
@@ -511,6 +519,10 @@ async function actionSaveProfile(env,db,owner,data){
   profile=advisorProfile(strategyProfile(goal,data.enabled===true));
  }
  const key=profile.strategyId||'';
+ // Der Legacy-Advisor darf ein laufendes Modellmandat (Wealth-Betreuung,
+ // mandateVersion 2) für dasselbe Anlageziel nicht überschreiben.
+ const existing=(await db('advisor_profiles?owner_id=eq.'+owner+'&strategy_key=eq.'+key))[0];
+ if(existing?.profile?.mandateVersion===2&&existing.enabled===true)throw new ServiceError('MANDATE_ACTIVE','Für dieses Anlageziel läuft bereits die automatische Modellbetreuung. Pausiere sie zuerst im Wealth-Bereich.',{status:409});
  await db('advisor_profiles?on_conflict=owner_id,strategy_key','POST',{owner_id:owner,strategy_key:key,profile,enabled:profile.enabled,next_due:profile.enabled?new Date(Date.now()+profile.intervalDays*86400000).toISOString():null,setup_error:null,updated_at:new Date().toISOString()});
  return {saved:true,profile};
 }
@@ -648,6 +660,12 @@ async function actionWealthSetEnabled(env,db,owner,data,enabled){
  if(!goal)throw new ServiceError('STRATEGY_INVALID','Anlageziel fehlt.');
  let profile;
  try{profile=mandate(goal,enabled);}catch(e){throw new ServiceError('MANDATE_INVALID',safeMessage(e.message));}
+ // Symmetrisch zum Legacy-Advisor: Die Modellbetreuung darf nicht aktiviert
+ // werden, solange für dasselbe Anlageziel ein aktives Legacy-Profil läuft.
+ if(enabled){
+  const existing=(await db('advisor_profiles?owner_id=eq.'+owner+'&strategy_key=eq.'+key))[0];
+  if(existing&&existing.profile?.mandateVersion!==2&&existing.enabled===true)throw new ServiceError('LEGACY_ACTIVE','Für dieses Anlageziel ist noch der klassische KI-Advisor aktiv. Deaktiviere ihn zuerst im Advisor-Bereich.',{status:409});
+ }
  await db('advisor_profiles?on_conflict=owner_id,strategy_key','POST',{owner_id:owner,strategy_key:key,profile,enabled,next_due:enabled?new Date().toISOString():null,setup_error:null,updated_at:new Date().toISOString()});
  if(enabled){
   await db('advisor_jobs?owner_id=eq.'+owner+'&strategy_key=eq.'+key+'&status=eq.queued','PATCH',{status:'failed',error:'Durch neue Aktivierung ersetzt.',finished_at:new Date().toISOString()});
@@ -745,22 +763,36 @@ async function careCycle(env,db,fetcher,profileRow){
   if(mandateIdentity(mandate(goal,profile.enabled))!==mandateIdentity(profile))throw new ServiceError('MANDATE_CHANGED','Mandat wurde geändert; Betreuung im Anlageziel erneut bestätigen.');
   const modelRow=(await db('wealth_models?owner_id=eq.'+owner+'&strategy_key=eq.'+key))[0];
   let model=modelRow?.model||null;
+  // Glidepath: Aktienquote sinkt mit dem Resthorizont. Der effektive
+  // Resthorizont wird aus dem Mandatsbeginn (Modell) abgeleitet; das
+  // gespeicherte Mandat (mandateIdentity) bleibt unverändert.
+  const elapsedYears=model?.startedOn?Math.max(0,Math.round((Date.parse(date)-Date.parse(model.startedOn))/(365.25*dayMs))):0;
+  const effectiveProfile={...profile,years:Math.max(1,profile.years-elapsedYears)};
   const {universe,market,coverage,benchInstruments}=await buildManagedUniverse(env,db,fetcher,owner,profile,model);
   if(model)model=markModel(model,market,date);
   const dueDeposit=depositDue(model,profile,date);
   const reviewDue=!model||!model.reviewedOn||(Date.parse(date)-Date.parse(model.reviewedOn))/dayMs>=(profile.reviewDays||30);
   let rec=model?.recommendation||null,rebalance=false;
-  if(reviewDue||!rec||(model&&(drift(model,rec,universe)>=(profile.driftBps??500)||modelLimitBreaches(model,profile,market)))){
-   rec=validateModel(allocateModel(profile,universe,market),profile,universe,market);rebalance=true;
+  // Strategieprüfung: effektive Zielquote (Resthorizont) gegen die aktuelle
+  // Modellquote prüfen; sinkt die Aktienquote durch Alterung, wird
+  // automatisch rebalanciert (zusätzlich zum reviewDays-Rhythmus).
+  const targetDrift=()=>{
+   if(!model||!rec)return false;
+   const t=strategicWeights(effectiveProfile),actual={cash:rec.cashWeightBps};
+   for(const p of rec.positions){const g=universe.find(u=>u.id===p.id)?.group||'unknown';actual[g]=(actual[g]||0)+p.weightBps;}
+   return Object.entries(t).some(([g,v])=>g!=='cash'&&(actual[g]||0)!==v)||(actual.cash||0)!==t.cash;
+  };
+  if(reviewDue||!rec||targetDrift()||(model&&(drift(model,rec,universe)>=(profile.driftBps??500)||modelLimitBreaches(model,profile,market)))){
+   rec=validateModel(allocateModel(effectiveProfile,universe,market),effectiveProfile,universe,market);rebalance=true;
   }
   let transactions=[];
   if(rebalance||dueDeposit>0||!model){const out=evolveModel(model,rec,universe,market,profile,date,{rebalance,deposit:dueDeposit});model=out.model;transactions=out.transactions;}
   model.reviewedOn=rebalance?date:(model.reviewedOn||model.startedOn);
-  try{model.benchmark=updateBenchmark(model.benchmark||null,benchInstruments,market,strategicWeights(profile),model.benchmark?0:profile.start,dueDeposit,date);model.benchmarkError=null;}
+  try{model.benchmark=updateBenchmark(model.benchmark||null,benchInstruments,market,strategicWeights(effectiveProfile),model.benchmark?0:profile.start,dueDeposit,date);model.benchmarkError=null;}
   catch(e){model.benchmarkError=safeMessage(e.message);}
   let explanationUsage=null,aiWarning='';
   if(rebalance&&env.openrouterKey){
-   try{const ai=await managedExplanation(env,fetcher,db,owner,profile,model,rec,universe);model.explanation=ai.explanation;explanationUsage=ai.usage;}
+   try{const ai=await managedExplanation(env,fetcher,db,owner,effectiveProfile,model,rec,universe);model.explanation=ai.explanation;explanationUsage=ai.usage;}
    catch(e){aiWarning='KI-Prüfung wird wiederholt: '+safeMessage(e.message);}
   }
   model.market=market;model.marketAsOf=date;
@@ -783,7 +815,9 @@ async function careCycle(env,db,fetcher,profileRow){
   // managed-ui.js: „erfolgt ... innerhalb des nächsten Betreuungszyklus
   // (bis zu 15 Minuten)" — wiederholbare Fehler früh erneut versuchen;
   // Einrichtungsfehler als setup_error am Profil sichtbar machen.
-  const setup=['BILLING_OWNER','BILLING_SETUP','BUDGET_LIMIT','AI_KEY_MISSING','MANDATE_CHANGED','MANDATE_INVALID','PLAN_MISSING'].includes(d.code);
+  // ALLOCATION_IMPOSSIBLE/UNIVERSE_EMPTY: strukturell unlösbare Allokation —
+  // nicht endlos retryen, sondern wie Einrichtungsfehler erst in 24 h.
+  const setup=['BILLING_OWNER','BILLING_SETUP','BUDGET_LIMIT','AI_KEY_MISSING','MANDATE_CHANGED','MANDATE_INVALID','PLAN_MISSING','ALLOCATION_IMPOSSIBLE','UNIVERSE_EMPTY'].includes(d.code);
   await db('advisor_profiles?owner_id=eq.'+owner+'&strategy_key=eq.'+key,'PATCH',{next_due:new Date(Date.now()+(setup?86400000:900000)).toISOString(),...(setup?{setup_error:d}:{})}).catch(()=>{});
   return {strategy:key,status:'failed',error:d.message};
  }
