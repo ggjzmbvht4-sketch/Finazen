@@ -4,13 +4,13 @@ Stand: 19.11.2026. Die App läuft unter **https://ggjzmbvht4-sketch.github.io/Fi
 
 Damit alles live geht, musst du nur noch die folgenden **Secrets** einmalig hinterlegen. Das geht ohne Werkzeuge im Browser:
 
-**Supabase-Dashboard → Projekt „kontur“ → Edge Functions → Secrets** (https://supabase.com/dashboard/project/mubwhahgrxgungwtbwab/settings/functions)
+**Supabase-Dashboard → Projekt „kontur" → Edge Functions → Secrets** (https://supabase.com/dashboard/project/mubwhahgrxgungwtbwab/settings/functions)
 
 ## 1. Pflicht-Secrets
 
 | Secret | Wert / Quelle |
 |---|---|
-| `ADVISOR_CRON_SECRET` | `1858bb07cb5f1ccb7641039c8d54a8de196ef5cc68816ce0c8345fc1828a6206` — aktiviert die beiden Hintergrund-Zeitpläne (dieser Wert liegt bereits verschlüsselt in der Datenbank-Vault und muss exakt so auch als Function-Secret gesetzt werden) |
+| `ADVISOR_CRON_SECRET` | Aktiviert die beiden Hintergrund-Zeitpläne. Der Wert liegt verschlüsselt in der Datenbank (Vault, Name `kontur_cron_secret`) und wird dir **separat** mitgeteilt — aus Sicherheitsgründen steht er nicht in dieser Datei. Auslesen jederzeit im Dashboard → SQL Editor: `select decrypted_secret from vault.decrypted_secrets where name = 'kontur_cron_secret';` |
 | `ALLOWED_ORIGINS` | `https://ggjzmbvht4-sketch.github.io` — damit die App die Functions aufrufen darf |
 | `TRADING212_API_KEY` | Neuer **Live**-API-Schlüssel aus der Trading212-App (Einstellungen → API) mit den Rechten `account`, `portfolio`, `metadata`, `pies:read`, `pies:write`. Wichtig: keine IP-Beschränkung eintragen (Supabase hat wechselnde IPs) |
 | `TRADING212_API_SECRET` | Das Secret zum Trading212-Schlüssel |
@@ -29,21 +29,21 @@ Damit alles live geht, musst du nur noch die folgenden **Secrets** einmalig hint
 ## 3. Erste Schritte in der App
 
 1. App öffnen: https://ggjzmbvht4-sketch.github.io/Finazen/
-2. **Einstellungen → Verbindungen**: Supabase-URL und Schlüssel sind bereits voreingetragen → nur noch „Verbindung speichern“.
-3. Konto anlegen (E-Mail + Passwort) und anmelden.
+2. **Einstellungen → Verbindungen**: Supabase-URL und Schlüssel sind bereits voreingetragen → nur noch „Verbindung speichern".
+3. Konto anlegen (E-Mail + Passwort). **Wichtig:** Du erhältst eine Bestätigungs-E-Mail — erst nach Klick auf den Link darin kannst du dich anmelden. (Wenn du das nicht willst: Dashboard → Authentication → Sign In/Up → „Confirm email" abschalten.)
 4. Deine Benutzer-ID finden: Supabase-Dashboard → Authentication → Users → deine UUID kopieren → als Secret `TRADING212_OWNER_ID` hinterlegen.
-5. In der App: **Einstellungen → Verbindungen → „Broker-Rechte prüfen“** (test-broker). Die App zeigt pro Bereich an, ob Rechte fehlen — ein fehlendes Recht blockiert die übrigen Bereiche nicht.
+5. In der App: **Einstellungen → Verbindungen → „Broker-Rechte prüfen"** (test-broker). Die App zeigt pro Bereich an, ob Rechte fehlen — ein fehlendes Recht blockiert die übrigen Bereiche nicht.
 6. Danach erscheinen deine Trading212-Pies automatisch mit ihren echten Namen im Portfolio. Pro Pie wählst du: **Advisor** (Kontur-Strategie), **Wikifolio** (Quelle auswählen) oder **Manuell**. Erst nach Zuordnung → Vorschau → ausdrücklicher Freigabe pflegt die App Zielgewichte automatisch. Echte Orders löst die App niemals aus.
 
 ## 4. Auf dem iPhone als App (PWA)
 
 1. Safari öffnen → https://ggjzmbvht4-sketch.github.io/Finazen/
-2. Teilen-Symbol → **„Zum Home-Bildschirm“** → Hinzufügen
-3. Die App startet danach im Vollbild wie eine native App und funktioniert offline mit dem letzten Datenstand. Updates kommen automatisch (die App meldet „App-Update verfügbar“).
+2. Teilen-Symbol → **„Zum Home-Bildschirm"** → Hinzufügen
+3. Die App startet danach im Vollbild wie eine native App und funktioniert offline mit dem letzten Datenstand. Updates kommen automatisch (die App meldet „App-Update verfügbar").
 
 ## 5. Auf dem Mac
 
-Einfach die GitHub-Pages-Adresse im Browser öffnen (oder ebenfalls als App installieren: Safari → Ablage → „Zum Dock hinzufügen“). Desktop- und Mobilansicht sind beide angepasst.
+Einfach die GitHub-Pages-Adresse im Browser öffnen (oder ebenfalls als App installieren: Safari → Ablage → „Zum Dock hinzufügen"). Desktop- und Mobilansicht sind beide angepasst.
 
 ## Hinweise
 
