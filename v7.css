@@ -10,7 +10,5 @@ body{font-feature-settings:"tnum";background:var(--bg);color:var(--text)}
 .mobile-nav{grid-template-columns:repeat(4,minmax(0,1fr))}
 button,select,input,textarea{font-family:inherit}.btn,select{min-height:44px}
 @media(max-width:700px){.ledger-hero>div{gap:12px}.mobile-nav button{min-width:0}.work-links{gap:6px}.work-links .btn{flex:1 1 auto}.card{min-width:0}.actions{flex-wrap:wrap}.main-shell main{overflow-wrap:anywhere}}
-@media(prefers-color-scheme:dark){:root{color-scheme:dark;--surface:#1b302a;--bg:#10231e;--line:#40594f;--text:#eef6f0;--muted:#b3c7bc;--mint:#25483a;--green:#9cdbbd;--green2:#a2dbc2}
-body,.main-shell,.topbar,.mobile-nav,dialog{background:#10231e;color:var(--text)}.card,.kpi,.btn,.chip,.section-toolbar,select,input,textarea,.dialog-head,.dialog-body,.planning-card,.portfolio-home-strip,.settings-grid section{background:#1b302a;color:#eef6f0;border-color:#40594f}.btn.primary,.chip.active{background:#b6e4c7;color:#122b20}.sidebar,.balance-card,.ledger-hero{background:#153b35;color:white}.subtitle,.form-help,small{color:#b3c7bc}.page-heading h1,h2,h3,.reserve-amount{color:#eef6f0}}
 .task-line{display:flex;width:100%;text-align:left;align-items:center;justify-content:space-between;padding:15px 0;gap:12px;border-bottom:1px solid var(--line)}
 .task-line span{color:var(--muted)}
