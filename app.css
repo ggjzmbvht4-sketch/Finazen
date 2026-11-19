@@ -177,3 +177,18 @@ table{font-size:13px}th{font-size:11px;letter-spacing:.15px;background:var(--sof
 .swipe-hint{display:none}
 @media(max-width:900px){.swipe-hint{display:inline}}
 @media(max-width:600px){.view-shortcuts{grid-template-columns:1fr}}
+
+
+/* V12.1.4: Hinweis-Banner der Betreuung (K2), Risiko-Grundliste (C4), Wizard-Spiegelung (C3). */
+.notice-banner{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;background:#faf3e3;border:1px solid #ecd9ae;color:#6b5320;border-radius:12px;padding:14px 16px;margin:18px 0;line-height:1.65;font-size:13px}
+.notice-banner p{margin:0 0 6px}
+.notice-banner p:last-of-type{margin-bottom:0}
+.notice-banner small{display:block;margin-top:8px;color:#8a7440}
+.notice-banner .text-btn{flex-shrink:0;color:#6b5320}
+.risk-list{margin:0 0 14px;padding-left:20px;line-height:1.7}
+.risk-list li{margin-bottom:6px}
+.model-disclaimer{margin:-6px 0 18px}
+.form-grid .span-all{grid-column:1/-1}
+.loss-mirror{margin:2px 0 0}
+.loss-hint{color:var(--amber)}
+details.card.methodology summary{cursor:pointer}
