@@ -3,6 +3,7 @@ export function planEdit(state,id,month,value,scope,end=month){
  if(!Number.isSafeInteger(value)||value<0)throw Error('Betrag prüfen.');
  const s=structuredClone(state),e=s.entries.find(e=>e.id===id);if(!e)throw Error('Eintrag fehlt.');
  if(scope==='future')end=monthAdd(s.anchor,599);
+ if(scope==='month')end=month;
  if(end<month||end>monthAdd(s.anchor,599))throw Error('Zeitraum prüfen.');
  e.planOverrides||={};
  for(let m=month;m<=end;m=monthAdd(m,1))if(m===month||due(e,m)||Object.hasOwn(e.planOverrides,m))e.planOverrides[m]=value;
