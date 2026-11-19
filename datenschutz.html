@@ -22,6 +22,7 @@ p,li{color:var(--text)}
 ul{padding-left:20px}
 li{margin:6px 0}
 .note{background:#e7eedf;border-radius:12px;padding:14px 16px;font-size:13.5px;color:var(--accent)}
+.placeholder{background:#fdf3d7;border:1px dashed #b48542;border-radius:12px;padding:14px 16px}
 footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted);display:flex;gap:18px;flex-wrap:wrap}
 </style>
 </head>
@@ -29,10 +30,17 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-si
 <main>
 <p class="eyebrow">KONTUR · PRIVATE FINANZ-APP</p>
 <h1>Datenschutzerklärung</h1>
-<p>Diese App wird privat und nicht kommerziell betrieben. Sie dient ausschließlich der persönlichen Finanzplanung. Stand: Februar 2026.</p>
+<p>Diese App wird privat und nicht kommerziell betrieben. Sie dient ausschließlich der persönlichen Finanzplanung. Stand: November 2026.</p>
 
 <h2>1. Verantwortlicher</h2>
-<p>Diese App wird privat betrieben. Verantwortlich im Sinne der DSGVO ist die Person, die diese App bereitstellt; die Kontaktdaten sind auf Nachfrage über die bekannten privaten Wege verfügbar. Es besteht kein kommerzielles Angebot und keine öffentliche Vermarktung.</p>
+<!-- WICHTIG: Die Platzhalter [[DEIN NAME]] und [[DEINE E-MAIL]] müssen ersetzt werden,
+     bevor diese App Dritten zugänglich gemacht wird (Art. 13 Abs. 1 lit. a DSGVO). -->
+<div class="placeholder">
+<p>Verantwortlich im Sinne der DSGVO ist:</p>
+<p><strong>[[DEIN NAME]]</strong><br>
+E-Mail: <strong>[[DEINE E-MAIL]]</strong></p>
+</div>
+<p>Es besteht kein kommerzielles Angebot und keine öffentliche Vermarktung.</p>
 
 <h2>2. Wo deine Daten gespeichert werden</h2>
 <div class="card">
@@ -48,30 +56,46 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-si
 <p>Zugriff erfolgt ausschließlich über dein Konto (Row Level Security). Eine Weitergabe an Dritte findet nicht statt.</p>
 <h3 style="color:var(--accent)">Serverseitige Schlüssel (Secrets)</h3>
 <p>Trading212-API-Schlüssel sowie Wikifolio-Zugangsdaten werden — falls du sie hinterlegst — ausschließlich serverseitig als verschlüsselte Secrets in Supabase gespeichert und niemals in der App oder im Browser abgelegt.</p>
+<h3 style="color:var(--accent)">Speicherdauer</h3>
+<p>Deine Cloud-Daten werden gespeichert, bis du dein Konto löschst (Einstellungen → Datenverwaltung → „Kontur-Daten zurücksetzen“) oder die Daten selbst entfernst. Lokale Daten verbleiben auf deinem Gerät, bis du sie über die Browser-Einstellungen löschst.</p>
 </div>
 
-<h2>3. Externe Dienste bei Nutzung bestimmter Funktionen</h2>
+<h2>3. Zwecke und Rechtsgrundlagen</h2>
+<ul>
+<li><strong>Speicherung und Synchronisierung deines Finanzplans</strong> über Supabase (Auth, Datenbank): Verarbeitung zur Bereitstellung der von dir gewünschten App-Funktionen — Art. 6 Abs. 1 lit. b DSGVO (Vertrag/vertragsähnliches Nutzungsverhältnis).</li>
+<li><strong>KI-Funktionen über OpenRouter</strong> (Strategieanalysen, Einordnungen): erst nach deiner ausdrücklichen Einwilligung — Art. 6 Abs. 1 lit. a DSGVO. Die Einwilligung kannst du jederzeit mit Wirkung für die Zukunft widerrufen, indem du die Funktion nicht weiter nutzt beziehungsweise die Betreuung deaktivierst.</li>
+<li><strong>Broker-Anbindung Trading212 und Wikifolio-Anbindung</strong> (Abruf von Konto-, Positions- und Portfoliodaten sowie das Schreiben von Pie-Zielgewichten bei Trading212): ebenfalls nur nach deiner ausdrücklichen Einwilligung durch das Hinterlegen der Zugangsdaten — Art. 6 Abs. 1 lit. a DSGVO.</li>
+</ul>
+
+<h2>4. Externe Dienste und Empfänger bei Nutzung bestimmter Funktionen</h2>
 <ul>
 <li><strong>Kursabfragen:</strong> Abfragen von Wertpapierkursen und Kennzahlen erfolgen über Yahoo Finance, die Frankfurter Börse (Börse Frankfurt), SEC-XBRL (US-Unternehmensdaten) sowie optional Finnhub und Twelve Data. Übertragen werden dabei nur Wertpapierkennungen (Ticker/ISIN), keine personenbezogenen Daten.</li>
-<li><strong>KI-Funktionen (OpenRouter):</strong> Für KI-Analysen werden Portfolioangaben und dein Risikoprofil erst nach deiner ausdrücklichen Einwilligung an OpenRouter übertragen. Die Anfragen erfolgen mit der Einstellung <code>data_collection: deny</code>, sodass keine Daten zum Training oder zur Protokollierung beim Anbieter verwendet werden.</li>
+<li><strong>OpenRouter (KI-Analysen):</strong> Für KI-Analysen werden Portfolioangaben und dein Risikoprofil erst nach deiner ausdrücklichen Einwilligung an OpenRouter übertragen. Die Anfragen erfolgen mit der Einstellung <code>data_collection: deny</code>, sodass keine Daten zum Training oder zur Protokollierung beim Anbieter verwendet werden. OpenRouter verarbeitet Daten in den USA (Drittland); die Übertragung erfolgt auf Grundlage deiner Einwilligung (Art. 49 Abs. 1 lit. a DSGVO i. V. m. den Garantien der Art. 44 ff. DSGVO, soweit einschlägig).</li>
+<li><strong>Trading212:</strong> Bei aktivierter Broker-Anbindung werden über die Trading212-API Konto- und Positionsdaten abgerufen sowie — nur nach deiner separaten Freigabe der Zielpflege — Zielgewichte deiner Pies geschrieben. Es werden niemals Orders ausgelöst.</li>
+<li><strong>Wikifolio:</strong> Bei hinterlegter Anbindung meldet sich der Server mit deinen Zugangsdaten bei Wikifolio an und ruft Portfoliodaten (Zusammensetzung der verknüpften Wikifolios) ab.</li>
 <li><strong>Supabase:</strong> Hosting und Authentifizierung (siehe Abschnitt 2).</li>
 </ul>
 
-<h2>4. Cookies und Tracking</h2>
+<h2>5. Automatisierte Verarbeitung (Modellbetreuung)</h2>
+<p>Der Robo-Advisor der App beobachtet auf Wunsch dein Anlageziel automatisiert: Kurse und Kennzahlen werden regelmäßig abgerufen, ein Modellportfolio wird bewertet und innerhalb der von dir gesetzten Grenzen angepasst. Dabei handelt es sich um eine <strong>Modellbetreuung</strong>: Es werden niemals echte Orders ausgelöst und keine Verträge geschlossen. Es findet <strong>keine automatisierte Entscheidung mit Rechtswirkung oder ähnlich erheblicher Beeinträchtigung im Sinne des Art. 22 DSGVO</strong> statt — alle Anlageentscheidungen triffst ausnahmslos du selbst.</p>
+
+<h2>6. Cookies und Tracking</h2>
 <p>Diese App verwendet keine Cookies, kein Tracking, keine Analyse-Werkzeuge und keine Werbung. Der Service Worker speichert ausschließlich App-Dateien für die Offline-Nutzung im Browser-Cache.</p>
 
-<h2>5. Deine Rechte</h2>
+<h2>7. Deine Rechte</h2>
 <ul>
 <li><strong>Auskunft:</strong> Du kannst jederzeit Auskunft über deine gespeicherten Daten verlangen. Sämtliche lokalen Daten kannst du zudem jederzeit über die Exportfunktion (JSON-Sicherung) einsehen.</li>
 <li><strong>Löschung:</strong> Die App enthält eine eingebaute Kontolöschung beziehungsweise einen Account-Reset: Einstellungen → Datenverwaltung → „Kontur-Daten zurücksetzen“. Damit werden alle Cloud-Daten deines Kontos gelöscht. Lokale Daten entfernst du über die Browser-Einstellungen (Website-Daten löschen).</li>
 <li><strong>Berichtigung und Datenübertragbarkeit:</strong> Alle Daten lassen sich in der App bearbeiten und als JSON/CSV exportieren.</li>
+<li><strong>Einschränkung der Verarbeitung</strong> sowie <strong>Widerspruch</strong> gegen Verarbeitungen: wende dich an die unter Abschnitt 1 genannte verantwortliche Person.</li>
+<li><strong>Widerruf von Einwilligungen:</strong> Erteilte Einwilligungen (z. B. KI-Funktionen, Broker-Anbindung) kannst du jederzeit mit Wirkung für die Zukunft widerrufen (Art. 7 Abs. 3 DSGVO), etwa durch Deaktivieren der Funktion oder Entfernen der Zugangsdaten.</li>
 <li><strong>Beschwerde:</strong> Du hast das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu beschweren.</li>
 </ul>
 
-<h2>6. Keine Weitergabe</h2>
-<p>Deine Daten werden nicht verkauft, nicht weitergegeben und nicht zu Werbezwecken genutzt. Übertragungen an die oben genannten Dienste erfolgen nur, wenn du die entsprechende Funktion aktiv nutzt.</p>
+<h2>8. Keine Weitergabe</h2>
+<p>Deine Daten werden nicht verkauft, nicht weitergegeben und nicht zu Werbezwecken genutzt. Übertragungen an die oben genannten Dienste erfolgen nur, wenn du die entsprechende Funktion aktivierst beziehungsweise ausdrücklich einwilligst (insbesondere KI-Funktionen über OpenRouter).</p>
 
-<p class="note">Da diese App privat betrieben wird, gibt es kein Auftragsverarbeitungsverhältnis mit Nutzern; die Verarbeitung erfolgt im Rahmen der persönlichen Nutzung (§ 2 Abs. 2 lit. c DSGVO / Haushaltsausnahme), soweit keine Cloud-Anmeldung erfolgt.</p>
+<p class="note">Da diese App privat betrieben wird, gibt es kein Auftragsverarbeitungsverhältnis mit Nutzern; die Verarbeitung erfolgt im Rahmen der persönlichen Nutzung (Art. 2 Abs. 2 lit. c DSGVO / Haushaltsausnahme), soweit keine Cloud-Anmeldung erfolgt.</p>
 
 <footer>
 <a href="./">← Zur App</a>
