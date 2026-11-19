@@ -4,6 +4,13 @@
 -- Zugriff ausschließlich über die Edge Function mit Service-Schlüssel
 -- (Service-Only-Muster wie 001_base_schema.sql): RLS aktiv, keine Policies,
 -- alle Rechte für public/anon/authenticated entzogen.
+--
+-- W2 (D3, 2026-11-19): advisor_runs an den führenden Live-Stand angeglichen —
+-- status CHECK ohne 'queued' mit Default 'running' (Läufe werden direkt als
+-- 'running' angelegt), strategy_key Default '' statt 'default', Idempotenz
+-- über den partiellen Unique-Index advisor_runs_request_idx statt eines
+-- Tabellen-Constraints. advisor_jobs ist unverändert (stimmt mit Live
+-- überein).
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -55,22 +62,26 @@ revoke all on table public.advisor_jobs from public, anon, authenticated;
 create table if not exists public.advisor_runs (
   id           uuid primary key default gen_random_uuid(),
   owner_id     uuid not null references auth.users(id) on delete cascade,
-  strategy_key text not null default 'default',
-  mode         text not null check (mode in ('analysis','advisor')),
-  status       text not null default 'queued'
-               check (status in ('queued','running','completed','failed')),
+  strategy_key text not null default '',
   request_id   text,
+  mode         text not null check (mode in ('analysis','advisor')),
+  status       text not null default 'running'
+               check (status in ('running','completed','failed')),
   profile      jsonb,
   result       jsonb,
   error        text,
-  created_at   timestamptz not null default now(),
-  finished_at  timestamptz,
   adopted_at   timestamptz,
-  unique (owner_id, request_id)
+  created_at   timestamptz not null default now(),
+  finished_at  timestamptz
 );
 
 create index if not exists advisor_runs_owner_strategy_idx
   on public.advisor_runs (owner_id, strategy_key, created_at desc);
+
+-- Idempotenz über request_id (Live-Stand: partieller Unique-Index statt
+-- Tabellen-Constraint; mehrere Läufe ohne request_id bleiben erlaubt).
+create unique index if not exists advisor_runs_request_idx
+  on public.advisor_runs (owner_id, request_id) where request_id is not null;
 
 alter table public.advisor_runs enable row level security;
 revoke all on table public.advisor_runs from public, anon, authenticated;
