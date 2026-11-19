@@ -136,7 +136,7 @@ function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,
   if(rebalance||!previous){
     const next=[];let spent=0;
     for(const p of rec.positions){const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m),valueCents=Math.floor(capital*p.weightBps/10000),units=valueCents/(priceEUR*100),old=model.positions.find(x=>x.id===p.id)?.units||0;next.push({id:p.id,units,valueCents,priceEUR,priceAsOf:m.indicators.asOf});spent+=valueCents;if(units!==old)transactions.push({type:'model-trade',id:p.id,units:units-old,priceEUR,priceAsOf:m.indicators.asOf,amountCents:Math.round((units-old)*priceEUR*100)});}
-    for(const old of model.positions.filter(x=>!rec.positions.some(p=>p.id===p.id))){const m=market.find(x=>x.id===old.id);transactions.push({type:'model-trade',id:old.id,units:-old.units,priceEUR:marketPrice(m),priceAsOf:m.indicators.asOf,amountCents:-old.valueCents});}
+    for(const old of model.positions.filter(x=>!rec.positions.some(p=>p.id===x.id))){const m=market.find(x=>x.id===old.id);transactions.push({type:'model-trade',id:old.id,units:-old.units,priceEUR:marketPrice(m),priceAsOf:m.indicators.asOf,amountCents:-old.valueCents});}
     model.positions=next;model.cashCents=capital-spent;
   }else if(deposit){
     let available=Math.min(deposit,Math.max(0,model.cashCents-Math.ceil(capital*rec.cashWeightBps/10000)));
