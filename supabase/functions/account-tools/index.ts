@@ -20,6 +20,9 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || SERVICE_KEY;
 const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") || "")
   .split(",").map((x) => x.trim()).filter(Boolean);
+// K6 (E1/S1/S9): fail-closed mit Default-Origin, damit die App auch ohne
+// gesetztes ALLOWED_ORIGINS-Secret funktioniert.
+const ORIGINS = ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : ["https://ggjzmbvht4-sketch.github.io"];
 
 // Alle Tabellen mit nutzereigenen Zeilen (owner_id), gemäß 001_base_schema.sql,
 // 012_v12_1.sql und 014_advisor_jobs.sql, verifiziert gegen das Projekt.
@@ -151,6 +154,14 @@ async function removeUserData(owner: string) {
   }
 }
 
+// W6 (B3): Vor dem Zurücksetzen/Löschen alle laufenden und anhängigen
+// Aufgaben einstellen, damit kein laufender Pie-Write nach dem Reset noch
+// gegen den Broker schreibt.
+async function cancelPendingWork(owner: string) {
+  await db("v12_tasks?owner_id=eq." + owner + "&status=in.(queued,running,blocked)", "PATCH", { status: "cancelled", updated_at: new Date().toISOString() });
+  await db("advisor_jobs?owner_id=eq." + owner + "&status=in.(queued,running)", "PATCH", { status: "failed", error: "Konto zurückgesetzt oder gelöscht; Lauf abgebrochen.", finished_at: new Date().toISOString() });
+}
+
 async function loadPlan(owner: string, planRevision: unknown) {
   const rows = await db("finance_plans?owner_id=eq." + owner + "&select=data,revision") as any[];
   const plan = rows[0] || null;
@@ -170,10 +181,9 @@ async function loadPlan(owner: string, planRevision: unknown) {
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin") || "";
-  const enforceOrigins = ALLOWED_ORIGINS.length > 0;
-  const allowed = !enforceOrigins || ALLOWED_ORIGINS.includes(origin);
+  const allowed = ORIGINS.includes(origin);
   const cors = {
-    "Access-Control-Allow-Origin": allowed ? (enforceOrigins ? origin : (origin || "*")) : "null",
+    "Access-Control-Allow-Origin": allowed ? origin : "null",
     "Access-Control-Allow-Headers": "authorization,apikey,content-type",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
     Vary: "Origin",
@@ -213,11 +223,15 @@ Deno.serve(async (req: Request) => {
       if (typeof data.password !== "string" || !data.password) throw new ToolError("Bitte das aktuelle Passwort eingeben.");
       await verifyPassword(String(user.email || ""), data.password);
       const plan = await loadPlan(owner, data.planRevision);
+      await cancelPendingWork(owner);
       await removeUserData(owner);
       const next = emptyPlan();
       const revision = (plan?.revision || 0) + 1;
       if (plan) {
-        await db("finance_plans?owner_id=eq." + owner, "PATCH", { data: next, revision, updated_at: new Date().toISOString() });
+        // W7 (B4): Atomarer Revisions-PATCH — eine leere Ergebnismenge
+        // bedeutet, der Cloud-Stand wurde zwischenzeitlich geändert.
+        const rows = await db("finance_plans?owner_id=eq." + owner + "&revision=eq." + plan.revision, "PATCH", { data: next, revision, updated_at: new Date().toISOString() }) as any[];
+        if (!rows?.length) throw new ToolError("SYNC_CONFLICT: Der Cloud-Stand wurde auf einem anderen Gerät geändert.", 409);
       } else {
         await db("finance_plans?on_conflict=owner_id", "POST", { owner_id: owner, data: next, revision, updated_at: new Date().toISOString() });
       }
@@ -231,7 +245,9 @@ Deno.serve(async (req: Request) => {
       if (!plan) throw new ToolError("Kein Finanzplan vorhanden.", 404);
       const next = deleteInvestmentFromPlan(plan.data, data.assetId, data.keepChildren === true);
       const revision = plan.revision + 1;
-      await db("finance_plans?owner_id=eq." + owner, "PATCH", { data: next, revision, updated_at: new Date().toISOString() });
+      // W7 (B4): Atomarer Revisions-PATCH mit 409 bei veraltetem Stand.
+      const rows = await db("finance_plans?owner_id=eq." + owner + "&revision=eq." + plan.revision, "PATCH", { data: next, revision, updated_at: new Date().toISOString() }) as any[];
+      if (!rows?.length) throw new ToolError("SYNC_CONFLICT: Der Cloud-Stand wurde auf einem anderen Gerät geändert.", 409);
       return json({ data: next, revision });
     }
 
@@ -240,7 +256,9 @@ Deno.serve(async (req: Request) => {
       if (data.phrase !== "LÖSCHEN") throw new ToolError("Bitte zur Bestätigung LÖSCHEN eingeben.");
       if (typeof data.password !== "string" || !data.password) throw new ToolError("Bitte das aktuelle Passwort eingeben.");
       await verifyPassword(String(user.email || ""), data.password);
-      // Zuerst alle Datenzeilen entfernen, danach das Auth-Konto (Reihenfolge: DSGVO).
+      // Zuerst laufende Aufgaben einstellen, dann alle Datenzeilen
+      // entfernen, danach das Auth-Konto (Reihenfolge: DSGVO).
+      await cancelPendingWork(owner);
       await removeUserData(owner);
       await db("finance_plans?owner_id=eq." + owner, "DELETE");
       const adminResponse = await fetch(SUPABASE_URL + "/auth/v1/admin/users/" + owner, {
