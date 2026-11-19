@@ -206,8 +206,7 @@ function repricePosition(position,market){
  if(next.priceAsOf&&next.priceAsOf!==asOf){
   const row=market.indicators.history?.find(x=>x.date===next.priceAsOf);
   // A3 (R2): Referenz-FX für die Kontinuitätskorrektur — bevorzugt das
-  // historische Fixing zum bis
-herigen Kursdatum (fxHistory), sonst das beim
+  // historische Fixing zum bisherigen Kursdatum (fxHistory), sonst das beim
   // Kauf bzw. der letzten Bewertung am Positionsobjekt gespeicherte fxRate,
   // sonst der frisch geladene Kurs (bei EUR-Instrumenten 1). Referenz und
   // Folgebewertung nutzen so dieselbe FX-Basis; eine tägliche Kumulation aus
@@ -338,8 +337,7 @@ function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,
       const bps=tradeCostBps(universe.find(x=>x.id===p.id));
       const cents=Math.min(available,need,Math.max(0,Math.floor((model.cashCents-costTotal-1)/(1+bps/10000))));
       if(!cents)continue;
-      const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m);let pos=model.positions.find(x=>x.id===p.id);if(!pos){po
-s={id:p.id,units:0,valueCents:0,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})};model.positions.push(pos);}const units=cents/(priceEUR*100);pos.units+=units;pos.valueCents+=cents;pos.priceEUR=priceEUR;if(Number(m.fx)>0)pos.fxRate=m.fx;model.cashCents-=cents;available-=cents;transactions.push({type:'model-trade',id:p.id,units,priceEUR,priceAsOf:m.indicators.asOf,amountCents:cents,costCents:book(p.id,cents)});
+      const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m);let pos=model.positions.find(x=>x.id===p.id);if(!pos){pos={id:p.id,units:0,valueCents:0,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})};model.positions.push(pos);}const units=cents/(priceEUR*100);pos.units+=units;pos.valueCents+=cents;pos.priceEUR=priceEUR;if(Number(m.fx)>0)pos.fxRate=m.fx;model.cashCents-=cents;available-=cents;transactions.push({type:'model-trade',id:p.id,units,priceEUR,priceAsOf:m.indicators.asOf,amountCents:cents,costCents:book(p.id,cents)});
     }
   }
   // B8: Kosten aus dem Modellwert buchen (Cash-Seite) und kumuliert mitführen;
@@ -428,8 +426,7 @@ async function reserveCost(env,billing,bucket,usdCeiling,meta={}){
 async function settleCost(ticket,{usd=null,released=false,uncertain=false,responseId=null}={}){
  if(!ticket)return;
  const actual=Number.isFinite(usd)&&usd>=0?Math.ceil(usd*USD_EUR_CEILING*1e6):null;
- await ticket.db('rpc/settle_v12_cost','POST',{p_owner:ticket.owner,p_id:ticket.id,p_micros:rel
-eased?0:uncertain?null:actual,p_state:released?'released':uncertain||actual===null?'uncertain':'settled',p_response_id:responseId});
+ await ticket.db('rpc/settle_v12_cost','POST',{p_owner:ticket.owner,p_id:ticket.id,p_micros:released?0:uncertain?null:actual,p_state:released?'released':uncertain||actual===null?'uncertain':'settled',p_response_id:responseId});
 }
 
 return {USD_EUR_CEILING,reserveCost,settleCost};
