@@ -6,6 +6,7 @@ export const FREQUENCIES={0:'Einmalig',1:'Monatlich',3:'Quartalsweise',6:'HalbjÃ
 export const uid=()=>crypto.randomUUID();
 export const cents=x=>Math.round(Number(x)*100);
 export const money=x=>new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'}).format((x||0)/100);
+export const pct=(x,digits=1)=>new Intl.NumberFormat('de-DE',{minimumFractionDigits:digits,maximumFractionDigits:digits}).format(x)+' %';
 export const monthIndex=m=>Number(m.slice(0,4))*12+Number(m.slice(5,7))-1;
 export const monthAdd=(m,n)=>{const i=monthIndex(m)+n;return `${Math.floor(i/12)}-${String(i%12+1).padStart(2,'0')}`;};
 export const monthLabel=m=>displayMonth(m);
