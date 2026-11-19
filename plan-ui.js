@@ -4,7 +4,7 @@ import {today,assetTotals,allocation} from './portfolio.js';
 import {advisorApply} from './advisor-core.js';
 import {catalog,proposal} from './strategy.js';
 
-export function createPlanUI({getState,getMonth,commit,render,modal,close,esc,period,entryForm,reservesPage,cloud,ensureCloud,getRevision,applyCloud,getScope,toast}){
+export function createPlanUI({getState,getMonth,commit,render,modal,close,esc,period,entryForm,reservesPage,cloud,ensureCloud,getRevision,applyCloud,getScope,toast,confirmAction}){
  let tab='budgets',cloudCache=null;
  const cloudPost=body=>cloud.request('/functions/v1/investment-advisor',{method:'POST',auth:true,body});
  const state=getState,month=getMonth;
@@ -56,33 +56,6 @@ export function createPlanUI({getState,getMonth,commit,render,modal,close,esc,pe
  function strategyForm(g={}){
   form('strategy',g.id?'Strategie bearbeiten':'Anlageziel anlegen',field('name','Anlageziel',g.name||'','required maxlength="100"')+select('selection','Auswahl der KI',[['free','Aktien und ETFs'],['etf','Nur ETFs'],['core','ETF-Kern · maximal 30 % Einzelaktien']],g.selection||'free')+field('sector','Höchstanteil einer Branche (%)',(g.sectorLimit||10000)/100,'type="number" min="1" max="100" required')+field('currencyLimit','Höchstanteil einer Handelswährung (%)',(g.currencyLimit||10000)/100,'type="number" min="1" max="100" required')+field('loss','Tolerierter zeitweiliger Verlust (%)',g.lossTolerance||20,'type="number" min="1" max="100" required')+select('risk','Risikoneigung',[['conservative','Vorsichtig'],['balanced','Ausgewogen'],['growth','Wachstumsorientiert']],g.risk||'balanced')+field('years','Horizont in Jahren',g.years||10,'type="number" required min="1" max="50"')+euros('start','Geplantes Startkapital (€)',(g.start||0)/100)+euros('rate','Monatliche Sparrate (€)',(g.rate||0)/100)+euros('target','Zielvermögen (€)',(g.target||0)/100)+field('cash','Mindestanteil Cash (%)',(g.cash??1000)/100,'required type="number" min="0" max="100"')+field('cap','Maximaler Anteil je Titel (%)',(g.cap||6000)/100,'required type="number" min="5" max="100"')+select('interval','Prüfrhythmus',[[1,'Täglich'],[7,'Wöchentlich'],[30,'Monatlich']],g.interval||7)+`<label class="checkbox"><input type="checkbox" name="noEm" ${g.noEm?'checked':''}>Schwellenländer im Offline-Modell ausschließen</label><details><summary>Einzelne Produkte ausschließen</summary>${catalog.map(c=>`<label class="checkbox"><input type="checkbox" name="exclude" value="${c.isin}" ${g.exclude?.includes(c.isin)?'checked':''}>${esc(c.name)}</label>`).join('')}</details>`,'Anlageziel speichern',g.id);
  }
- function wealth(){
-  const s=state();
-  return `<div class="page-heading"><div><button class="text-btn" data-view="investments">‹ Investments</button><h1>Robo-Advisor</h1><p class="subtitle">Anlageziele, Strategie und tatsächlicher Bestand.</p></div>${button('goal','Anlageziel anlegen','',true)}</div>`+(s.strategies||[]).map(g=>{
-   if(g.selection){
-    const root=s.portfolio.assets.find(x=>x.id===g.pieId),holding=root?assetTotals(s.portfolio,root.id):null;
-    return panel(g.name,row('Strategie',{free:'Aktien und ETFs',core:'ETF-Kern mit Einzelaktien',etf:'ETF-Portfolio'}[g.selection])+row('Ziel / Sparrate',money(g.target)+' / '+money(g.rate))+row('Depotwert',holding?.known?money(holding.value):'Noch kein bewerteter Pie')+row('Zuletzt übernommene Empfehlung',g.lastAdvice?.asOf||'Erste Analyse offen')+
-    (g.lastAdvice?.positions||[]).map(pos=>{const u=g.lastAdvice.universe.find(x=>x.id===pos.id),a=s.portfolio.assets.find(x=>x.parentId===g.pieId&&s.portfolio.instruments.some(i=>i.id===x.instrumentId&&((u.isin&&i.isin===u.isin)||i.symbol===u.symbol&&i.exchange.toUpperCase()===u.exchange.toUpperCase())&&i.currency===u.currency));return row(u.name,pos.weightBps/100+' % · '+(a?money(assetTotals(s.portfolio,a.id).value):'offen'))+(a?button('buy','Kauf eintragen',a.id):'');}).join('')+
-    '<div class="actions">'+button('connect-goal','KI einrichten',g.id)+button('cloud-status','Prüfverlauf öffnen',g.id,true)+button('edit-goal','Profil bearbeiten',g.id)+'</div>'+cloudPanel(g)+
-    '<details><summary>Einzahlungen und Offline-Modell</summary>'+button('capital','Startkapital einplanen',g.id)+button('savings','Sparrate einplanen',g.id)+(g.lastAdvice?'':button('adopt','Regelbasiertes ETF-Modell vormerken',g.id))+'</details>');
-   }
-   const products=g.lastAdvice?.universe||catalog,rec=g.lastAdvice?{...g.lastAdvice,feeBps:null}:proposal(g),pie=s.portfolio.assets.find(a=>a.id===g.pieId),root=pie?assetTotals(s.portfolio,pie.id):null;
-   const checked=g.checked||'',overdue=!checked||Date.parse(today())-Date.parse(checked)>=g.interval*86400000;
-   const rows=[...rec.positions];
-   for(const child of root?.children||[]){
-    const instrument=s.portfolio.instruments.find(i=>i.id===child.asset.instrumentId);
-    if(instrument&&products.some(c=>c.id===instrument.isin)&&!rows.some(x=>x.id===instrument.isin))
-      rows.push({id:instrument.isin,weightBps:0,reason:'Position im bestehenden Pie'});
-   }
-   let topup=[];if(pie&&root?.known)try{topup=allocation(s.portfolio,pie.id,g.rate);}catch{}
-   return panel(g.name,row('Zielvermögen',money(g.target))+row('Depotwert',root?.known?money(root.value):'Noch kein vollständig bewerteter Bestand')+(root?.known&&g.target?row('Ziel erreicht',(root.value/g.target*100).toFixed(1)+' %'):'')+row('Geplanter Start / Monat',money(g.start)+' / '+money(g.rate))+row('Prüfung',checked+(overdue?' · fällig':' · aktuell'))+row('Gewichtete Fondskosten p. a.',rec.feeBps===null?'Daten unvollständig':(rec.feeBps/100).toLocaleString('de-DE',{maximumFractionDigits:3})+' %')+`<h3>${g.lastAdvice?'Übernommener KI-Vorschlag':'Offline-Modell · fünf ETFs'}</h3>`+rows.map(pos=>{
-    const c=products.find(c=>c.id===pos.id),inst=s.portfolio.instruments.find(i=>(c.isin?i.isin===c.isin:i.symbol===c.symbol&&i.exchange.toUpperCase()===c.exchange.toUpperCase())&&i.currency===c.currency),a=pie&&inst&&s.portfolio.assets.find(a=>a.parentId===pie.id&&a.instrumentId===inst.id),v=a?assetTotals(s.portfolio,a.id):null;
-    const verified=g.brokerChecks?.[c.isin];
-    const add=topup.find(x=>x.id===a?.id)?.add;
-    return `<div class="strategy-line"><strong>${esc(c.name)}</strong><small>${esc(c.isin||c.symbol)} · ${esc(pos.reason)} · Kosten ${c.fee===undefined?'offen':c.fee/100+' %'}</small>${row('Vorschlag / Pie-Ziel / Ist',pos.weightBps/100+' % / '+(a?a.targetBps/100+' %':'–')+' / '+(root?.known&&root.value&&v?.known?(100*v.value/root.value).toFixed(1)+' %':'–'))}${row('Nächste Rate',add!==undefined?money(add):!root?.value?money(Math.round(g.rate*pos.weightBps/10000)):'Bewertung ergänzen')}${row('Bei Trading212',verified?'Von dir bestätigt · '+verified:'Verfügbarkeit offen')}${button('broker-check',verified?'Bestätigung entfernen':'Verfügbarkeit bestätigen',g.id+'|'+c.isin)}${a?row('Ausgeführt',s.portfolio.events.filter(e=>e.assetId===a.id&&e.trade==='buy').length+' Kaufbuchungen'):''}${a?button('buy','Ausgeführten Kauf eintragen',a.id):''}</div>`;
-   }).join('')+row('Cash · Vorschlag / Pie-Ziel',rec.cashWeightBps/100+' % / '+(pie?(root.children.find(x=>x.asset.kind==='cash')?.asset.targetBps||0)/100+' %':'–'))+`<p>Trading212-Verfügbarkeit vor der Ausführung im eigenen Konto prüfen.</p><div class="actions">${button('edit-goal','Profil bearbeiten',g.id)}${button('refresh-goal','Strategie prüfen',g.id)}${!g.lastAdvice?button('adopt','Offline-Modell vormerken',g.id):''}${g.start?button('capital','Startkapital einplanen',g.id):''}${button('savings','Sparrate im Monatsplan anlegen',g.id)}${button('connect-goal','KI-Strategie einrichten',g.id)}${button('cloud-status','KI-Empfehlungen öffnen',g.id)}</div>`+(pie?row('Vorgemerkter Pie',pie.name):'')+cloudPanel(g));
-  }).join('')+panel('Offline-Modell',`<p>Ohne Cloud kannst du für ein Ziel die regelbasierte Auswahl aus fünf ETFs nutzen. Grenzen, Horizont und ausgeschlossene Produkte bestimmen die Gewichte. Katalogstand 09.11.2026.</p><details><summary>Alle fünf Kandidaten vergleichen</summary>${catalog.map(c=>row(c.name,c.fee/100+' %')+`<a href="${c.source}" target="_blank" rel="noopener">Produktdaten · ${c.isin}</a>`).join('')}</details>`)+panel('Analysen und Marktdaten','<button class="btn" data-feature="advisor">Cloud-Analysen und Prüfverlauf öffnen</button>');
- }
  function cloudPanel(g){
   if(cloudCache?.scope!==getScope()||cloudCache.goalId!==g.id)return '';
   const data=cloudCache.data,profile=data.profile?.profile;
@@ -124,11 +97,14 @@ export function createPlanUI({getState,getMonth,commit,render,modal,close,esc,pe
   if(action==='budget-edit'){entryForm(id);return;}
   if(action==='roll'){const e=s.entries.find(e=>e.id===id);e.rollover=!e.rollover;}
   if(action==='purchase'){purchase(id);return;}
-  if(action==='item-post'||action==='item-remove'){
+  if(action==='item-remove'){
+   if(s.closedMonths?.[m])throw Error('Budgetmonat zuerst wieder öffnen.');
+   confirmAction('Buchung entfernen?','Die Einzelbuchung wird aus dem Monatsbudget entfernt.',()=>{const next=structuredClone(state());for(const [key,a] of Object.entries(next.actuals)){if(!key.endsWith(':'+m)||!a.items?.some(x=>x.id===id))continue;a.items=a.items.filter(x=>x.id!==id);a.amount=a.items.filter(x=>!x.pending).reduce((v,x)=>v+x.amount,0);}commit(next);toast('Buchung entfernt.');},'Entfernen');return;
+  }
+  if(action==='item-post'){
    if(s.closedMonths?.[m])throw Error('Budgetmonat zuerst wieder öffnen.');
    for(const [key,a] of Object.entries(s.actuals)){if(!key.endsWith(':'+m)||!a.items?.some(x=>x.id===id))continue;
-    if(action==='item-post')a.items.find(x=>x.id===id).pending=false;
-    else a.items=a.items.filter(x=>x.id!==id);
+    a.items.find(x=>x.id===id).pending=false;
     a.amount=a.items.filter(x=>!x.pending).reduce((v,x)=>v+x.amount,0);
    }
   }
@@ -138,7 +114,7 @@ export function createPlanUI({getState,getMonth,commit,render,modal,close,esc,pe
    form('move','Budgetrest reservieren',select('reserve','Rücklage',s.reserves.map(x=>[x.id,x.name]))+euros('amount','Betrag in €',Math.max(0,forecast().envelopes[id].available)/100),'Reservieren',id);return;
   }
   if(action==='rule'){ruleForm();return;}
-  if(action==='rule-remove')s.rules=s.rules.filter(x=>x.id!==id);
+  if(action==='rule-remove'){confirmAction('Verteilregel entfernen?','Die Regel wird entfernt. Bereits übernommene Monatseinträge bleiben erhalten.',()=>{const next=structuredClone(state());next.rules=(next.rules||[]).filter(x=>x.id!==id);commit(next);toast('Verteilregel entfernt.');},'Entfernen');return;}
   if(action==='up'){const i=s.rules.findIndex(x=>x.id===id);if(i>0)[s.rules[i-1],s.rules[i]]=[s.rules[i],s.rules[i-1]];}
   if(action==='apply'){
    const open=(s.rules||[]).filter(x=>targetName(x,s)&&!s.entries.some(e=>e.ruleId===x.id&&e.start===m));
@@ -233,5 +209,5 @@ export function createPlanUI({getState,getMonth,commit,render,modal,close,esc,pe
   if(f.id==='v6-accept'){for(const raw of d.getAll('draft')){const x=JSON.parse(raw);if(!targets().some(([k])=>k===x.target))throw Error('Ziel wurde entfernt.');const [kind,...parts]=x.target.split(':'),target=parts.join(':');(s.rules||=[]).push({id:uid(),kind,target,percent:true,amount:cents(x.percent)});}}
   commit(s);close();
  }
- return {page,wealth,click,submit,purchase};
+ return {page,click,submit,purchase};
 }
