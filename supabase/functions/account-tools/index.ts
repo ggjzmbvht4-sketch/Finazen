@@ -223,10 +223,11 @@ Deno.serve(async (req: Request) => {
       if (typeof data.password !== "string" || !data.password) throw new ToolError("Bitte das aktuelle Passwort eingeben.");
       await verifyPassword(String(user.email || ""), data.password);
       const plan = await loadPlan(owner, data.planRevision);
-      await cancelPendingWork(owner);
-      await removeUserData(owner);
       const next = emptyPlan();
       const revision = (plan?.revision || 0) + 1;
+      // Zuerst der atomare Revisions-PATCH auf finance_plans: Schlägt er mit
+      // 409 fehl (leere Ergebnismenge), wurde noch nichts gelöscht — es
+      // entsteht keine Teil-Löschung.
       if (plan) {
         // W7 (B4): Atomarer Revisions-PATCH — eine leere Ergebnismenge
         // bedeutet, der Cloud-Stand wurde zwischenzeitlich geändert.
@@ -235,6 +236,10 @@ Deno.serve(async (req: Request) => {
       } else {
         await db("finance_plans?on_conflict=owner_id", "POST", { owner_id: owner, data: next, revision, updated_at: new Date().toISOString() });
       }
+      // Erst nach erfolgreicher Plan-Sicherung laufende Aufgaben einstellen
+      // und die übrigen Nutzerdaten entfernen.
+      await cancelPendingWork(owner);
+      await removeUserData(owner);
       return json({ data: next, revision });
     }
 
