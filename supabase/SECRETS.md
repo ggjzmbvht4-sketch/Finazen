@@ -11,7 +11,7 @@ Dashboard → Edge Functions → `kontur-services` → Secrets
 |---|---|---|
 | `SUPABASE_URL` | Pflicht (von Supabase automatisch gesetzt) | `env.url` – Basis für REST (`/rest/v1/`) und GoTrue (`/auth/v1/user`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Pflicht (automatisch) | `env.serviceKey` – apikey/Bearer für REST-RPCs und User-Verifikation |
-| `ALLOWED_ORIGINS` | Pflicht für Browser-Aufrufe | Kommagetrennte Origin-Liste; ohne Match → 403 `ALLOWED_ORIGINS prüfen.` |
+| `ALLOWED_ORIGINS` | Optional (Default: `https://ggjzmbvht4-sketch.github.io`) | Kommagetrennte Origin-Liste; ohne Match → 403 `ALLOWED_ORIGINS prüfen.`; ohne Secret gilt nur die Standard-Origin der App (fail-closed gegenüber allen anderen Origins) |
 | `TRADING212_OWNER_ID` | Pflicht | `billingOwner` + `brokerOwner`; `enforceBudget:true` lehnt sonst mit `BILLING_OWNER`/`BROKER_SETUP` ab; muss der User-ID (UUID) des persönlichen Kontos entsprechen |
 | `TRADING212_API_KEY` | Optional, aber Voraussetzung für alle Broker-Funktionen | Trading212-Live-Key (Basic Auth) |
 | `TRADING212_API_SECRET` | Optional, wie Key | Trading212-Live-Secret (Basic Auth) |
