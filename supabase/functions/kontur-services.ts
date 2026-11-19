@@ -11,11 +11,22 @@ function mandate(goal, enabled = true) {
   if (goal.emergencyFund !== 'covered') throw Error('Zuerst einen verfügbaren Notgroschen außerhalb dieser Strategie einplanen.');
   if (goal.approach === 'active' && (goal.experience !== 'experienced' || goal.years < 5 || goal.lossTolerance < 30 || goal.liquidityYears > 0 && goal.liquidityYears < 5)) throw Error('Aktive Aktienstrategien benötigen Erfahrung, mindestens fünf Jahre verfügbares Kapital und mindestens 30 % Verlusttragfähigkeit.');
   if (goal.liquidityYears > 0 && goal.liquidityYears < goal.years) throw Error('Anlagehorizont an den früheren Liquiditätsbedarf anpassen.');
+  // W10 (R1): Mindestanlage — Startkapital plus sechs monatliche Sparraten
+  // müssen zusammen mindestens 100 Euro ergeben. (1:1-Regel wie investment-advisor v16,
+  // damit mandateIdentity des gespeicherten Mandats übereinstimmt.)
+  if (goal.start + goal.rate * 6 < 10000) throw Error('Mindestanlage nicht erreicht: Startkapital plus sechs monatliche Sparraten müssen zusammen mindestens 100 Euro ergeben.');
+  // W13 (R4): Optionale Einkommens-/Vermögensangaben und Plausibilität der
+  // Sparrate gegen das deklarierte monatliche Einkommen.
+  const optCents = v => v === undefined || v === null || (Number.isSafeInteger(v) && v >= 0 && v <= 1e14);
+  if (!optCents(goal.monthlyIncomeCents) || !optCents(goal.liquidAssetsCents)) throw Error('Angaben zu Einkommen und verfügbarem Vermögen prüfen.');
+  if (Number.isSafeInteger(goal.monthlyIncomeCents) && goal.rate > goal.monthlyIncomeCents) throw Error('Die monatliche Sparrate übersteigt das deklarierte monatliche Einkommen. Bitte Sparrate oder Angaben anpassen.');
   for (const key of ['sectorLimit','currencyLimit']) if (!integer(goal[key],100,10000)) throw Error('Branchen- und Listingwährungsgrenzen prüfen.');
   if (!Array.isArray(goal.exclude) || goal.exclude.length > 200 || goal.exclude.some(x=>typeof x!=='string')) throw Error('Ausschlüsse prüfen.');
-  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?7:30,driftBps:500};
+  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),...(Number.isSafeInteger(goal.monthlyIncomeCents)?{monthlyIncomeCents:goal.monthlyIncomeCents}:{}),...(Number.isSafeInteger(goal.liquidAssetsCents)?{liquidAssetsCents:goal.liquidAssetsCents}:{}),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?7:30,driftBps:500};
 }
-function mandateIdentity(profile) { const {enabled,...identity}=profile; return JSON.stringify(Object.fromEntries(Object.entries(identity).sort(([a],[b])=>a.localeCompare(b)))); }
+// W13 (R4): confirmedAt bleibt außen vor — eine Re-Bestätigung der
+// Geeignetheitsprüfung ändert das Mandat nicht. (1:1 wie investment-advisor v16.)
+function mandateIdentity(profile) { const {enabled,confirmedAt,...identity}=profile; return JSON.stringify(Object.fromEntries(Object.entries(identity).sort(([a],[b])=>a.localeCompare(b)))); }
 function strategicWeights(p) {
   if(p.approach==='active'){const stock=Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.lossTolerance*150,10000-p.cash);return {stock,cash:10000-stock};}
   const equity=Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.years<3?0:p.years<5?3000:10000,p.lossTolerance*150,10000-p.cash);
@@ -43,15 +54,22 @@ function allocateModel(profile, candidates, market) {
     const eligible=candidates.filter(u=>u.group===group && u.brokerConfirmed && !profile.exclude.includes(u.isin) && market.some(m=>m.id===u.id&&!m.error&&!m.indicators?.stale) && (profile.approach!=='active'||activeScore(market.find(m=>m.id===u.id)?.facts,market.find(m=>m.id===u.id)?.indicators)))
       .sort((a,b)=>profile.approach==='active'?(activeScore(market.find(m=>m.id===b.id).facts,market.find(m=>m.id===b.id).indicators).value-activeScore(market.find(m=>m.id===a.id).facts,market.find(m=>m.id===a.id).indicators).value||a.id.localeCompare(b.id)):(a.fee-b.fee||a.id.localeCompare(b.id)));
     for(const u of eligible) {
-      const m=market.find(m=>m.id===u.id),sector=m.sector||'unknown';
-      const weightBps=Math.max(0,Math.min(left,profile.cap,profile.sectorLimit-(sectors.get(sector)||0),profile.currencyLimit-(currencies.get(u.currency)||0)));
+      // W12 (R3): Branchen- und Währungsgrenzen gelten nur für Einzelaktien;
+      // ETF-/Katalogpositionen ohne sector-Feld werden nicht als 'unknown'
+      // gegen die Branchenkappe aggregiert. (1:1 wie investment-advisor v16.)
+      const m=market.find(m=>m.id===u.id),sector=m.sector||null,stock=u.kind==='stock';
+      const weightBps=Math.max(0,Math.min(left,profile.cap,
+        ...(stock&&sector?[profile.sectorLimit-(sectors.get(sector)||0)]:[]),
+        ...(stock?[profile.currencyLimit-(currencies.get(u.currency)||0)]:[])));
       if(!weightBps) continue;
       const score=profile.approach==='active'?activeScore(m.facts,m.indicators):null;
       const alternative=eligible.find(x=>x.id!==u.id);
       const reason=score?'Bewertung '+score.value.toFixed(1)+'/100 (je 20 %): '+Object.entries(score.components).map(([k,v])=>({quality:'Qualität',valuation:'Bewertung',debt:'Verschuldung',growth:'Wachstum',momentum:'Momentum'})[k]+' '+v.toFixed(0)).join(', ')+'. Berichtsstand '+m.facts.asOf+'.':
         'Strategischer '+({world:'Industrieländer',em:'Schwellenländer',bond:'Anleihen'})[group]+'-Baustein; Produktkosten laut gepflegtem Katalog '+(u.fee/100).toFixed(2)+' % p. a.'+(alternative?' Vergleich: '+alternative.name+' ('+(alternative.fee/100).toFixed(2)+' %).':' Kein weiterer bestätigter Baustein dieser Klasse mit ausreichenden Daten.');
       positions.push({id:u.id,weightBps,reason});
-      sectors.set(sector,(sectors.get(sector)||0)+weightBps);currencies.set(u.currency,(currencies.get(u.currency)||0)+weightBps);left-=weightBps;
+      if(stock&&sector)sectors.set(sector,(sectors.get(sector)||0)+weightBps);
+      if(stock)currencies.set(u.currency,(currencies.get(u.currency)||0)+weightBps);
+      left-=weightBps;
       if(!left) break;
     }
     if(left) throw Error('Keine belastbare Zusammensetzung: Für '+group+' fehlen bestätigte Produkte, Daten oder Spielraum innerhalb deiner Grenzen. Bestehendes Modell bleibt erhalten.');
@@ -66,7 +84,10 @@ function validateModel(rec,p,universe,market) {
     if(!u?.brokerConfirmed||seen.has(pos.id)||p.exclude.includes(u.isin)||!Number.isInteger(pos.weightBps)||pos.weightBps<=0||pos.weightBps>p.cap||!m||m.error||m.indicators?.stale)throw Error('Instrument, Kursstand oder Positionsgrenze ungültig.');
     if(p.approach==='longterm'&&(u.kind!=='etf'||!u.ucits||!['world','em','bond'].includes(u.group)))throw Error('Nur klassifizierte UCITS-ETFs sind im langfristigen Modell zulässig.');
     if(p.approach==='active'&&(u.kind!=='stock'||!activeScore(m.facts,m.indicators)))throw Error('Aktienbewertung unvollständig.');
-    const sector=m.sector||'unknown';sectors.set(sector,(sectors.get(sector)||0)+pos.weightBps);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.weightBps);seen.add(pos.id);total+=pos.weightBps;
+    // W12 (R3): Grenzen nur für Einzelaktien aggregieren; ETF-/Katalog-
+    // positionen ohne sector-Feld zählen nicht als 'unknown'-Branche. (1:1 wie investment-advisor v16.)
+    if(u.kind==='stock'){if(m.sector)sectors.set(m.sector,(sectors.get(m.sector)||0)+pos.weightBps);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.weightBps);}
+    seen.add(pos.id);total+=pos.weightBps;
   }
   if(total!==10000||[...sectors.values()].some(x=>x>p.sectorLimit)||[...currencies.values()].some(x=>x>p.currencyLimit))throw Error('Gesamtgewicht, Branche oder Listingwährungsgrenze verletzt.');
   const bounds=strategicWeights(p);
@@ -115,7 +136,7 @@ function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,
   if(rebalance||!previous){
     const next=[];let spent=0;
     for(const p of rec.positions){const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m),valueCents=Math.floor(capital*p.weightBps/10000),units=valueCents/(priceEUR*100),old=model.positions.find(x=>x.id===p.id)?.units||0;next.push({id:p.id,units,valueCents,priceEUR,priceAsOf:m.indicators.asOf});spent+=valueCents;if(units!==old)transactions.push({type:'model-trade',id:p.id,units:units-old,priceEUR,priceAsOf:m.indicators.asOf,amountCents:Math.round((units-old)*priceEUR*100)});}
-    for(const old of model.positions.filter(x=>!rec.positions.some(p=>p.id===x.id))){const m=market.find(x=>x.id===old.id);transactions.push({type:'model-trade',id:old.id,units:-old.units,priceEUR:marketPrice(m),priceAsOf:m.indicators.asOf,amountCents:-old.valueCents});}
+    for(const old of model.positions.filter(x=>!rec.positions.some(p=>p.id===p.id))){const m=market.find(x=>x.id===old.id);transactions.push({type:'model-trade',id:old.id,units:-old.units,priceEUR:marketPrice(m),priceAsOf:m.indicators.asOf,amountCents:-old.valueCents});}
     model.positions=next;model.cashCents=capital-spent;
   }else if(deposit){
     let available=Math.min(deposit,Math.max(0,model.cashCents-Math.ceil(capital*rec.cashWeightBps/10000)));
@@ -127,11 +148,14 @@ function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,
   return {model,transactions};
 }
 function actualFresh(portfolio,date) {const gap=(Date.parse(date)-Date.parse(portfolio?.lastReconciledAt))/dayMs;return Number.isFinite(gap)&&gap>=-1&&gap<=7;}
-// Buy-and-hold reference, funded on the exact same model dates; no retrospective prices.
-function updateBenchmark(previous,instruments,market,weights,start,deposit,date){
+// Buy-and-hold-Referenz, finanziert an denselben Modelldaten; keine rückblickenden Kurse.
+// W11 (R2): Die Finanzierung folgt dauerhaft dem Modell — der Aufrufer
+// übergibt das Delta von model.paidCents gegenüber benchmark.paidCents
+// (Nachbuchung), nicht die fällige Sparrate. (Signatur wie investment-advisor v16.)
+function updateBenchmark(previous,instruments,market,weights,funding,date){
  const b=previous?structuredClone(previous):{startedOn:date,paidCents:0,cashCents:0,positions:[],history:[]};
  for(const pos of b.positions){const m=market.find(x=>x.id===pos.id);if(!m||m.error||m.indicators?.stale)throw Error('Benchmark-Kurs fehlt.');Object.assign(pos,repricePosition(pos,m));}
- const funding=(previous?0:start)+deposit;b.paidCents+=funding;b.cashCents+=funding;
+ b.paidCents+=funding;b.cashCents+=funding;
  for(const [group,bps]of Object.entries(weights)){
   if(group==='cash'||!bps)continue;
   const u=instruments.find(u=>u.group===group);if(!u)throw Error('Benchmark-Instrument fehlt.');
@@ -146,7 +170,7 @@ function updateBenchmark(previous,instruments,market,weights,start,deposit,date)
 }
 function modelLimitBreaches(model,profile,market){
  const sectors=new Map(),currencies=new Map();
- for(const pos of model.positions){const u=model.universe?.find(x=>x.id===pos.id),m=market.find(x=>x.id===pos.id);if(!u||!m)return true;const sector=m.sector||'unknown';sectors.set(sector,(sectors.get(sector)||0)+pos.valueCents);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.valueCents);if(pos.valueCents>model.valueCents*profile.cap/10000+1)return true;}
+ for(const pos of model.positions){const u=model.universe?.find(x=>x.id===pos.id),m=market.find(x=>x.id===pos.id);if(!u||!m)return true;if(u.kind==='stock'){if(m.sector)sectors.set(m.sector,(sectors.get(m.sector)||0)+pos.valueCents);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.valueCents);}if(pos.valueCents>model.valueCents*profile.cap/10000+1)return true;}
  return model.cashCents+1<model.valueCents*profile.cash/10000||[...sectors.values()].some(v=>v>model.valueCents*profile.sectorLimit/10000+1)||[...currencies.values()].some(v=>v>model.valueCents*profile.currencyLimit/10000+1);
 }
 
