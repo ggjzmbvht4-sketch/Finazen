@@ -2,8 +2,20 @@
 // supabase/functions/investment-advisor/managed-core.js
 const __module2=(()=>{
 // Shared, deterministic model rules. EUR amounts are cents; weights are basis points.
-const RULES_VERSION = 'kontur-wealth-1';
+// K6 (v18): 1:1-Synchronisation aus investment-advisor/index.ts (managed-core,
+// Regelwerk kontur-wealth-2, Advisor-Version v18). ServiceError ist hier bewusst
+// lokal definiert, damit die Fehlersemantik der Advisor-Quelle (ServiceError mit
+// code) ohne Änderung der Bundle-Modulreihenfolge erhalten bleibt.
+class ServiceError extends Error {
+ constructor(code,message,{status=400,retryable=false,retryAfter=0,requestId=null}={}){super(message);Object.assign(this,{name:'ServiceError',code,status,retryable,retryAfter,requestId});}
+}
+// Regelwerk v18 (Robo-Fix-Welle Runde 1): 200d-Regime-Overlay (B1), linearer
+// Glidepath (B2), 5/25-Drift-Hybrid mit Cash-Hysterese (B3), Active-Caps mit
+// Kern-ETF (B5/B6), Turnover-Bremsen (B7), Kostenmodell (B8). Die Sektion ist
+// 1:1 in kontur-services.ts (__module2) zu spiegeln (K6-Parität).
+const RULES_VERSION = 'kontur-wealth-2';
 const dayMs = 86400000;
+const clamp01=x=>Math.max(0,Math.min(1,x));
 function mandate(goal, enabled = true) {
   const integer = (v, min, max) => Number.isSafeInteger(v) && v >= min && v <= max;
   if (!goal || !/^[\da-f-]{36}$/i.test(goal.id) || typeof goal.name !== 'string' || !goal.name.trim() || goal.name.length > 100 || !['conservative','balanced','growth'].includes(goal.risk) || !integer(goal.years,1,50) || ![goal.start,goal.rate,goal.target].every(v=>integer(v,0,1e14)) || !integer(goal.cash,0,10000) || !integer(goal.cap,500,10000)) throw Error('Anlageziel und Risikoprofil prüfen.');
@@ -12,8 +24,7 @@ function mandate(goal, enabled = true) {
   if (goal.approach === 'active' && (goal.experience !== 'experienced' || goal.years < 5 || goal.lossTolerance < 30 || goal.liquidityYears > 0 && goal.liquidityYears < 5)) throw Error('Aktive Aktienstrategien benötigen Erfahrung, mindestens fünf Jahre verfügbares Kapital und mindestens 30 % Verlusttragfähigkeit.');
   if (goal.liquidityYears > 0 && goal.liquidityYears < goal.years) throw Error('Anlagehorizont an den früheren Liquiditätsbedarf anpassen.');
   // W10 (R1): Mindestanlage — Startkapital plus sechs monatliche Sparraten
-  // müssen zusammen mindestens 100 Euro ergeben. (1:1-Regel wie investment-advisor v16,
-  // damit mandateIdentity des gespeicherten Mandats übereinstimmt.)
+  // müssen zusammen mindestens 100 Euro ergeben.
   if (goal.start + goal.rate * 6 < 10000) throw Error('Mindestanlage nicht erreicht: Startkapital plus sechs monatliche Sparraten müssen zusammen mindestens 100 Euro ergeben.');
   // W13 (R4): Optionale Einkommens-/Vermögensangaben und Plausibilität der
   // Sparrate gegen das deklarierte monatliche Einkommen.
@@ -22,21 +33,62 @@ function mandate(goal, enabled = true) {
   if (Number.isSafeInteger(goal.monthlyIncomeCents) && goal.rate > goal.monthlyIncomeCents) throw Error('Die monatliche Sparrate übersteigt das deklarierte monatliche Einkommen. Bitte Sparrate oder Angaben anpassen.');
   for (const key of ['sectorLimit','currencyLimit']) if (!integer(goal[key],100,10000)) throw Error('Branchen- und Listingwährungsgrenzen prüfen.');
   if (!Array.isArray(goal.exclude) || goal.exclude.length > 200 || goal.exclude.some(x=>typeof x!=='string')) throw Error('Ausschlüsse prüfen.');
-  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),...(Number.isSafeInteger(goal.monthlyIncomeCents)?{monthlyIncomeCents:goal.monthlyIncomeCents}:{}),...(Number.isSafeInteger(goal.liquidAssetsCents)?{liquidAssetsCents:goal.liquidAssetsCents}:{}),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?7:30,driftBps:500};
+  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),...(Number.isSafeInteger(goal.monthlyIncomeCents)?{monthlyIncomeCents:goal.monthlyIncomeCents}:{}),...(Number.isSafeInteger(goal.liquidAssetsCents)?{liquidAssetsCents:goal.liquidAssetsCents}:{}),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?14:30,driftBps:500};
 }
 // W13 (R4): confirmedAt bleibt außen vor — eine Re-Bestätigung der
-// Geeignetheitsprüfung ändert das Mandat nicht. (1:1 wie investment-advisor v16.)
+// Geeignetheitsprüfung ändert das Mandat nicht.
 function mandateIdentity(profile) { const {enabled,confirmedAt,...identity}=profile; return JSON.stringify(Object.fromEntries(Object.entries(identity).sort(([a],[b])=>a.localeCompare(b)))); }
 function strategicWeights(p) {
-  if(p.approach==='active'){const stock=Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.lossTolerance*150,10000-p.cash);return {stock,cash:10000-stock};}
-  const equity=Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.years<3?0:p.years<5?3000:10000,p.lossTolerance*150,10000-p.cash);
-  const cash=Math.max(p.cash,p.years<3?8000:0);
+  // B2 (v18): Linearer Glidepath statt Stufen — der Aktienanteil wird im
+  // Fenster von fünf bis zwei Jahren Resthorizont linear auf null abgebaut
+  // (Multiplikator clamp01((years-2)/3)); die Cash-Rampe steigt spiegelbildlich
+  // gleitend statt sprunghaft auf 8000 bps. p.years darf gebrochen sein
+  // (careCycle reicht den tagesgenauen Resthorizont durch).
+  const glide=clamp01((p.years-2)/3);
+  // B6 (v18): Verlusttragfähigkeits-Faktor für Einzelaktien (active) 100 statt
+  // 150 — impliziter Maximal-Drawdown von Einzelaktien 100 %.
+  const factor=p.approach==='active'?100:150;
+  if(p.approach==='active'){const stock=Math.round(Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.lossTolerance*factor,10000-p.cash)*glide);return {stock,cash:10000-stock};}
+  const equity=Math.round(Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.lossTolerance*factor,10000-p.cash)*glide);
+  const cash=Math.max(p.cash,Math.round((1-glide)*8000));
   const stock=Math.min(equity,10000-cash),em=Math.round(stock*.15);
   return {world:stock-em,em,bond:10000-cash-stock,cash};
 }
-// Vertrag (B12): indicators.momentum63Pct = Momentum über 63 Handelstage, wie es yahooChart
-// in market.js liefert. Die bisherige Übergabestelle (investment-advisor, advisor-core)
-// schreibt noch momentum20Pct; beide Felder werden übergangsweise akzeptiert.
+// B1 (v18): Regime-Overlay — 200-Tage-Linie des World-Referenzindex mit
+// ±2 %-Hystereseband. Innerhalb des Bandes bleibt der bisherige Zustand
+// bestehen; bei weniger als 200 Kurszeilen ändert sich nichts. Der Zustand
+// wird am Modell (model.regime) persistiert, nicht im Mandat.
+const REGIME={lookback:200,bandBps:200,riskOffScaleBps:2500};
+function regimeDistance(history){
+ if(!Array.isArray(history)||history.length<REGIME.lookback)return null;
+ const closes=history.slice(-REGIME.lookback).map(x=>Number(x.close)).filter(x=>Number.isFinite(x)&&x>0);
+ if(closes.length<REGIME.lookback)return null;
+ const sma=closes.reduce((a,b)=>a+b,0)/closes.length;
+ return Math.round((closes.at(-1)/sma-1)*10000);
+}
+function regimeSignal(history,prev){
+ const distance=regimeDistance(history);
+ if(distance===null)return prev==='risk-off'?'risk-off':'risk-on';
+ if(distance<-REGIME.bandBps)return 'risk-off';
+ if(distance>REGIME.bandBps)return 'risk-on';
+ return prev==='risk-off'?'risk-off':'risk-on';
+}
+// Regime-Zielgewichte: risk-off skaliert die Risikoanteile auf 25 % (bei
+// longterm wandert die Differenz zu bond, bei active zu cash); risk-on sind
+// die strategischen Gewichte unverändert.
+function regimeWeights(profile,regime){
+ const base=strategicWeights(profile);
+ if(regime!=='risk-off')return base;
+ if(profile.approach==='active'){
+  const stock=Math.round(base.stock*REGIME.riskOffScaleBps/10000);
+  return {stock,cash:10000-stock};
+ }
+ const world=Math.round(base.world*REGIME.riskOffScaleBps/10000),em=Math.round(base.em*REGIME.riskOffScaleBps/10000);
+ return {world,em,bond:10000-base.cash-world-em,cash:base.cash};
+}
+// Vertrag (K3/v18): indicators.momentum63Pct = Momentum über 63 Handelstage in
+// Prozent, wie es advisorIndicators ab v18 liefert. Übergangsweise wird das
+// Alt-Feld momentum20Pct noch akzeptiert (ältere gespeicherte Marktzeilen).
 function activeScore(facts, indicators) {
   const f=facts||{},keys=['roe','pe','debtToEquity','revenueGrowth'];
   const momentumPct=indicators?.momentum63Pct??indicators?.momentum20Pct;
@@ -46,25 +98,44 @@ function activeScore(facts, indicators) {
   const components={quality:clamp(f.roe*250),valuation:clamp(100-f.pe*2),debt:clamp(100-f.debtToEquity*50),growth:clamp(50+f.revenueGrowth*200),momentum:clamp(50+momentumPct*2)};
   return {version:RULES_VERSION,value:Object.values(components).reduce((n,x)=>n+x,0)/5,components};
 }
-function allocateModel(profile, candidates, market) {
-  const target=strategicWeights(profile),positions=[],sectors=new Map(),currencies=new Map();
+function allocateModel(profile, candidates, market, {weights=null,previousRec=null}={}) {
+  // B1 (v18): weights erlaubt Regime-Zielgewichte (regimeWeights) statt der
+  // statischen strategischen Gewichte als Allokationsziel.
+  const target=weights||strategicWeights(profile),positions=[],sectors=new Map(),currencies=new Map();
+  if(candidates.some(u=>u.brokerConfirmed&&!market.some(m=>m.id===u.id&&!m.error)))throw new ServiceError('UNIVERSE_EMPTY','Kein verwaltbares Universum: bestätigte Instrumente haben keine belastbaren Marktdaten.');
+  // B5 (v18): Einzeltitel-Obergrenze im aktiven Ansatz hart auf 1500 bps
+  // begrenzt, unabhängig von einer großzügigeren Mandatsgrenze.
+  const singleCap=profile.approach==='active'?Math.min(profile.cap,1500):profile.cap;
+  // B7 (v18): Score-Hysterese — Bestandspositionen erhalten +5 Punkte auf den
+  // Sortierscore; ein Titelwechsel erfolgt nur bei Score-Abstand > 5.
+  const incumbents=new Set((previousRec?.positions||[]).map(p=>p.id));
+  const sortScore=u=>{if(u.coreSleeve)return -1;const s=activeScore(market.find(m=>m.id===u.id)?.facts,market.find(m=>m.id===u.id)?.indicators);return (s?s.value:0)+(incumbents.has(u.id)?5:0);};
   for(const [group,budget] of Object.entries(target)) {
     if(group==='cash'||!budget) continue;
     let left=budget;
-    const eligible=candidates.filter(u=>u.group===group && u.brokerConfirmed && !profile.exclude.includes(u.isin) && market.some(m=>m.id===u.id&&!m.error&&!m.indicators?.stale) && (profile.approach!=='active'||activeScore(market.find(m=>m.id===u.id)?.facts,market.find(m=>m.id===u.id)?.indicators)))
-      .sort((a,b)=>profile.approach==='active'?(activeScore(market.find(m=>m.id===b.id).facts,market.find(m=>m.id===b.id).indicators).value-activeScore(market.find(m=>m.id===a.id).facts,market.find(m=>m.id===a.id).indicators).value||a.id.localeCompare(b.id)):(a.fee-b.fee||a.id.localeCompare(b.id)));
+    const eligible=candidates.filter(u=>u.group===group && u.brokerConfirmed && !profile.exclude.includes(u.isin) && market.some(m=>m.id===u.id&&!m.error&&!m.indicators?.stale) && (profile.approach!=='active'||u.coreSleeve===true||activeScore(market.find(m=>m.id===u.id)?.facts,market.find(m=>m.id===u.id)?.indicators)))
+      .sort((a,b)=>profile.approach==='active'?(sortScore(b)-sortScore(a)||a.id.localeCompare(b.id)):(a.fee-b.fee||a.id.localeCompare(b.id)));
+    // B5 (v18): Mindestens acht Einzelpositionen anstreben — bei genügend
+    // Auswahl wird die Obergrenze je Titel auf ein Achtel des Budgets
+    // begrenzt; was darüber hinaus nicht verteilt werden kann (oder bei
+    // weniger als acht geeigneten Titeln übrig bleibt), geht in den
+    // Kern-World-ETF (coreSleeve) statt die Allokation scheitern zu lassen.
+    const stockCount=eligible.filter(u=>!u.coreSleeve).length;
+    const groupCap=profile.approach==='active'&&group==='stock'&&stockCount>=8?Math.min(singleCap,Math.ceil(budget/8)):singleCap;
     for(const u of eligible) {
       // W12 (R3): Branchen- und Währungsgrenzen gelten nur für Einzelaktien;
       // ETF-/Katalogpositionen ohne sector-Feld werden nicht als 'unknown'
-      // gegen die Branchenkappe aggregiert. (1:1 wie investment-advisor v16.)
+      // gegen die Branchenkappe aggregiert.
       const m=market.find(m=>m.id===u.id),sector=m.sector||null,stock=u.kind==='stock';
-      const weightBps=Math.max(0,Math.min(left,profile.cap,
+      const weightBps=Math.max(0,Math.min(left,
+        ...(u.coreSleeve?[]:[groupCap]),
         ...(stock&&sector?[profile.sectorLimit-(sectors.get(sector)||0)]:[]),
         ...(stock?[profile.currencyLimit-(currencies.get(u.currency)||0)]:[])));
       if(!weightBps) continue;
-      const score=profile.approach==='active'?activeScore(m.facts,m.indicators):null;
+      const score=profile.approach==='active'&&!u.coreSleeve?activeScore(m.facts,m.indicators):null;
       const alternative=eligible.find(x=>x.id!==u.id);
-      const reason=score?'Bewertung '+score.value.toFixed(1)+'/100 (je 20 %): '+Object.entries(score.components).map(([k,v])=>({quality:'Qualität',valuation:'Bewertung',debt:'Verschuldung',growth:'Wachstum',momentum:'Momentum'})[k]+' '+v.toFixed(0)).join(', ')+'. Berichtsstand '+m.facts.asOf+'.':
+      const reason=u.coreSleeve?'Kernbaustein Industrieländer-ETF: nimmt das Restbudget auf, das nicht auf mindestens acht geeignete Einzelaktien innerhalb deiner Grenzen (Einzeltitel-Obergrenze 15 %) verteilt werden kann; Produktkosten laut gepflegtem Katalog '+(u.fee/100).toFixed(2)+' % p. a.':
+        score?'Bewertung '+score.value.toFixed(1)+'/100 (je 20 %): '+Object.entries(score.components).map(([k,v])=>({quality:'Qualität',valuation:'Bewertung',debt:'Verschuldung',growth:'Wachstum',momentum:'Momentum'})[k]+' '+v.toFixed(0)).join(', ')+'. Berichtsstand '+m.facts.asOf+'.':
         'Strategischer '+({world:'Industrieländer',em:'Schwellenländer',bond:'Anleihen'})[group]+'-Baustein; Produktkosten laut gepflegtem Katalog '+(u.fee/100).toFixed(2)+' % p. a.'+(alternative?' Vergleich: '+alternative.name+' ('+(alternative.fee/100).toFixed(2)+' %).':' Kein weiterer bestätigter Baustein dieser Klasse mit ausreichenden Daten.');
       positions.push({id:u.id,weightBps,reason});
       if(stock&&sector)sectors.set(sector,(sectors.get(sector)||0)+weightBps);
@@ -72,7 +143,7 @@ function allocateModel(profile, candidates, market) {
       left-=weightBps;
       if(!left) break;
     }
-    if(left) throw Error('Keine belastbare Zusammensetzung: Für '+group+' fehlen bestätigte Produkte, Daten oder Spielraum innerhalb deiner Grenzen. Bestehendes Modell bleibt erhalten.');
+    if(left) throw new ServiceError('ALLOCATION_IMPOSSIBLE','Keine belastbare Zusammensetzung: Für '+group+' fehlen bestätigte Produkte, Daten oder Spielraum innerhalb deiner Grenzen. Bestehendes Modell bleibt erhalten.');
   }
   return {summary:profile.name,positions,cashWeightBps:target.cash,action:'hold',changeReason:'Regelbasierte Zielaufteilung '+RULES_VERSION,portfolioAssessment:'Modellstrategie; tatsächliche Bestände werden separat gepflegt.',optimizations:[],risks:['Modellwerte sind keine echten Depotbestände.','Verlusttragfähigkeit ist keine Verlustgarantie.','ETF-Durchschau und wirtschaftliches Währungsrisiko sind ohne bestätigte Daten unbekannt.'],sources:[...new Set(candidates.filter(u=>positions.some(x=>x.id===u.id)).map(u=>u.source).filter(Boolean))]};
 }
@@ -81,11 +152,15 @@ function validateModel(rec,p,universe,market) {
   const seen=new Set(),sectors=new Map(),currencies=new Map();let total=rec.cashWeightBps;
   for(const pos of rec.positions){
     const u=universe.find(u=>u.id===pos.id),m=market.find(m=>m.id===pos.id);
-    if(!u?.brokerConfirmed||seen.has(pos.id)||p.exclude.includes(u.isin)||!Number.isInteger(pos.weightBps)||pos.weightBps<=0||pos.weightBps>p.cap||!m||m.error||m.indicators?.stale)throw Error('Instrument, Kursstand oder Positionsgrenze ungültig.');
+    // B5 (v18): Einzeltitel im aktiven Ansatz hart <= 1500 bps; der Kern-ETF
+    // (coreSleeve) ist davon ausgenommen, muss aber ein UCITS-ETF bleiben.
+    const posCap=p.approach==='active'&&!u?.coreSleeve?Math.min(p.cap,1500):p.cap;
+    if(!u?.brokerConfirmed||seen.has(pos.id)||p.exclude.includes(u.isin)||!Number.isInteger(pos.weightBps)||pos.weightBps<=0||pos.weightBps>posCap||!m||m.error||m.indicators?.stale)throw Error('Instrument, Kursstand oder Positionsgrenze ungültig.');
+    if(u.coreSleeve&&(u.kind!=='etf'||!u.ucits))throw Error('Kernbaustein ist kein klassifizierter UCITS-ETF.');
     if(p.approach==='longterm'&&(u.kind!=='etf'||!u.ucits||!['world','em','bond'].includes(u.group)))throw Error('Nur klassifizierte UCITS-ETFs sind im langfristigen Modell zulässig.');
-    if(p.approach==='active'&&(u.kind!=='stock'||!activeScore(m.facts,m.indicators)))throw Error('Aktienbewertung unvollständig.');
+    if(p.approach==='active'&&!u.coreSleeve&&(u.kind!=='stock'||!activeScore(m.facts,m.indicators)))throw Error('Aktienbewertung unvollständig.');
     // W12 (R3): Grenzen nur für Einzelaktien aggregieren; ETF-/Katalog-
-    // positionen ohne sector-Feld zählen nicht als 'unknown'-Branche. (1:1 wie investment-advisor v16.)
+    // positionen ohne sector-Feld zählen nicht als 'unknown'-Branche.
     if(u.kind==='stock'){if(m.sector)sectors.set(m.sector,(sectors.get(m.sector)||0)+pos.weightBps);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.weightBps);}
     seen.add(pos.id);total+=pos.weightBps;
   }
@@ -122,28 +197,65 @@ function drift(model,rec,universe) {
   for(const pos of rec.positions){const g=universe.find(u=>u.id===pos.id)?.group||'unknown';target.set(g,(target.get(g)||0)+pos.weightBps);}
   return Math.max(...new Set([...actual.keys(),...target.keys()].map(g=>Math.abs((actual.get(g)||0)-(target.get(g)||0)))));
 }
+// B3 (v18): 5/25-Drift-Hybrid — Band je Gruppe min(500, max(100, 25 % des
+// Zielgewichts)) statt globaler 500 bps. Die Cash-Untergrenze (vormals in
+// modelLimitBreaches) löst mit Hysterese erst unterhalb Ziel minus dieses Band
+// aus; Cash-Überschuss ist kein Rebalance-Grund.
+function groupDriftBps(targetBps){return Math.min(500,Math.max(100,Math.round(targetBps*0.25)));}
+function driftBreached(model,rec,universe){
+ if(!model?.valueCents)return true;
+ const actual=new Map(),target=new Map();
+ for(const pos of model.positions){const g=universe.find(u=>u.id===pos.id)?.group||'unknown';actual.set(g,(actual.get(g)||0)+pos.valueCents/model.valueCents*10000);}
+ actual.set('cash',model.cashCents/model.valueCents*10000);target.set('cash',rec.cashWeightBps);
+ for(const pos of rec.positions){const g=universe.find(u=>u.id===pos.id)?.group||'unknown';target.set(g,(target.get(g)||0)+pos.weightBps);}
+ for(const g of new Set([...actual.keys(),...target.keys()])){
+  const t=target.get(g)||0,a=actual.get(g)||0;
+  if(g==='cash'){if(a<t-groupDriftBps(t))return true;continue;}
+  if(Math.abs(a-t)>=groupDriftBps(t))return true;
+ }
+ return false;
+}
 function depositDue(previous,profile,date) {
   if(!previous)return 0;
   const last=previous.depositThrough||previous.startedOn;
   const months=d=>Number(d.slice(0,4))*12+Number(d.slice(5,7));
   return Math.max(0,months(date)-months(last))*profile.rate;
 }
+// B8 (v18): Angenommene Handelskosten je Modell-Trade (werden vom Modellwert
+// abgezogen): ETF 10 bps, Aktie 25 bps, zuzüglich 15 bps FX bei Titeln in
+// Fremdwährung.
+function tradeCostBps(u){return (u?.kind==='stock'?25:10)+(u?.currency&&u.currency!=='EUR'?15:0);}
 function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,deposit=0}={}) {
-  let model=previous?structuredClone(previous):{version:1,rulesVersion:RULES_VERSION,startedOn:date,depositThrough:date,paidCents:profile.start,valueCents:profile.start,cashCents:profile.start,positions:[],history:[]};
+  let model=previous?structuredClone(previous):{version:1,rulesVersion:RULES_VERSION,startedOn:date,depositThrough:date,paidCents:profile.start,valueCents:profile.start,cashCents:profile.start,costsCents:0,positions:[],history:[]};
   const transactions=[];model.cashCents+=deposit;model.paidCents+=deposit;model.valueCents+=deposit;
   if(deposit){transactions.push({type:'model-deposit',amountCents:deposit});model.depositThrough=date;}
   const capital=model.valueCents;
+  let costTotal=0;
+  const book=(id,amountCents)=>{const costCents=Math.round(Math.abs(amountCents)*tradeCostBps(universe.find(x=>x.id===id))/10000);costTotal+=costCents;return costCents;};
   if(rebalance||!previous){
     const next=[];let spent=0;
-    for(const p of rec.positions){const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m),valueCents=Math.floor(capital*p.weightBps/10000),units=valueCents/(priceEUR*100),old=model.positions.find(x=>x.id===p.id)?.units||0;next.push({id:p.id,units,valueCents,priceEUR,priceAsOf:m.indicators.asOf});spent+=valueCents;if(units!==old)transactions.push({type:'model-trade',id:p.id,units:units-old,priceEUR,priceAsOf:m.indicators.asOf,amountCents:Math.round((units-old)*priceEUR*100)});}
-    for(const old of model.positions.filter(x=>!rec.positions.some(p=>p.id===x.id))){const m=market.find(x=>x.id===old.id);transactions.push({type:'model-trade',id:old.id,units:-old.units,priceEUR:marketPrice(m),priceAsOf:m.indicators.asOf,amountCents:-old.valueCents});}
+    for(const p of rec.positions){
+      const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m),valueCents=Math.floor(capital*p.weightBps/10000),old=model.positions.find(x=>x.id===p.id);
+      // B7 (v18): No-Trade-Band — Bestandspositionen innerhalb von ±20 %
+      // relativ um ihren Zielwert bleiben beim Rebalancing unverändert.
+      if(previous&&old&&valueCents>0&&Math.abs(old.valueCents-valueCents)<=Math.round(valueCents*0.2)){next.push(old);spent+=old.valueCents;continue;}
+      const units=valueCents/(priceEUR*100),oldUnits=old?.units||0;
+      next.push({id:p.id,units,valueCents,priceEUR,priceAsOf:m.indicators.asOf});spent+=valueCents;
+      if(units!==oldUnits){const amountCents=Math.round((units-oldUnits)*priceEUR*100);transactions.push({type:'model-trade',id:p.id,units:units-oldUnits,priceEUR,priceAsOf:m.indicators.asOf,amountCents,costCents:book(p.id,amountCents)});}
+    }
+    for(const old of model.positions.filter(x=>!rec.positions.some(p=>p.id===x.id))){const m=market.find(x=>x.id===old.id);transactions.push({type:'model-trade',id:old.id,units:-old.units,priceEUR:marketPrice(m),priceAsOf:m.indicators.asOf,amountCents:-old.valueCents,costCents:book(old.id,old.valueCents)});}
     model.positions=next;model.cashCents=capital-spent;
   }else if(deposit){
-    let available=Math.min(deposit,Math.max(0,model.cashCents-Math.ceil(capital*rec.cashWeightBps/10000)));
+    // B11 (v18): Verfügbar ist das überschüssige Modell-Cash oberhalb der
+    // Cash-Zielquote — nicht mehr auf die frische Einzahlung gekappt; die
+    // Käufe bleiben über needs gedeckelt.
+    let available=Math.max(0,model.cashCents-Math.ceil(capital*rec.cashWeightBps/10000));
     const needs=rec.positions.map(p=>({p,need:Math.max(0,Math.floor(capital*p.weightBps/10000)-(model.positions.find(x=>x.id===p.id)?.valueCents||0))})).sort((a,b)=>b.need-a.need||a.p.id.localeCompare(b.p.id));
-    for(const {p,need} of needs){const cents=Math.min(available,need);if(!cents)continue;const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m);let pos=model.positions.find(x=>x.id===p.id);if(!pos){pos={id:p.id,units:0,valueCents:0,priceEUR,priceAsOf:m.indicators.asOf};model.positions.push(pos);}const units=cents/(priceEUR*100);pos.units+=units;pos.valueCents+=cents;pos.priceEUR=priceEUR;model.cashCents-=cents;available-=cents;transactions.push({type:'model-trade',id:p.id,units,priceEUR,priceAsOf:m.indicators.asOf,amountCents:cents});}
+    for(const {p,need} of needs){const cents=Math.min(available,need);if(!cents)continue;const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m);let pos=model.positions.find(x=>x.id===p.id);if(!pos){pos={id:p.id,units:0,valueCents:0,priceEUR,priceAsOf:m.indicators.asOf};model.positions.push(pos);}const units=cents/(priceEUR*100);pos.units+=units;pos.valueCents+=cents;pos.priceEUR=priceEUR;model.cashCents-=cents;available-=cents;transactions.push({type:'model-trade',id:p.id,units,priceEUR,priceAsOf:m.indicators.asOf,amountCents:cents,costCents:book(p.id,cents)});}
   }
-  model.recommendation=rec;model.universe=universe;model.asOf=date;model.costAssumption='Modell mit synthetischen Bruchstücken und bereinigten Kursreihen (Ausschüttungen reinvestiert); 0 € Ordergebühr. Spreads, individuelle Steuern und FX-Gebühren nicht simuliert. Nachgeholte Sparraten werden zum aktuellen verfügbaren Modellkurs angelegt.';
+  // B8: Kosten aus dem Modellwert buchen (Cash-Seite) und kumuliert mitführen.
+  if(costTotal){model.cashCents-=costTotal;model.valueCents-=costTotal;model.costsCents=(model.costsCents||0)+costTotal;}
+  model.recommendation=rec;model.universe=universe;model.asOf=date;model.costAssumption='Modell mit synthetischen Bruchstücken und bereinigten Kursreihen (Ausschüttungen reinvestiert); 0 € Ordergebühr. Angenommene Kosten je Modell-Trade: ETF 0,10 %, Aktie 0,25 %, zuzüglich 0,15 % FX bei Titeln in Fremdwährung — bereits vom Modellwert abgezogen. Individuelle Spreads und Steuern sind nicht simuliert. Steuerhinweis: Trading212 führt keine deutsche Abgeltungsteuer ab — Erträge sind selbst über die Anlage KAP/KAP-INV zu erklären (kein Freistellungsauftrag möglich; bei thesaurierenden ETFs fällt jährlich die Vorabpauschale an). Nachgeholte Sparraten werden zum aktuellen verfügbaren Modellkurs angelegt.';
   model.history=[...model.history.filter(x=>x.date!==date),{date,valueCents:model.valueCents,paidCents:model.paidCents}].slice(-3660);
   return {model,transactions};
 }
@@ -151,7 +263,7 @@ function actualFresh(portfolio,date) {const gap=(Date.parse(date)-Date.parse(por
 // Buy-and-hold-Referenz, finanziert an denselben Modelldaten; keine rückblickenden Kurse.
 // W11 (R2): Die Finanzierung folgt dauerhaft dem Modell — der Aufrufer
 // übergibt das Delta von model.paidCents gegenüber benchmark.paidCents
-// (Nachbuchung), nicht die fällige Sparrate. (Signatur wie investment-advisor v16.)
+// (Nachbuchung), nicht die fällige Sparrate.
 function updateBenchmark(previous,instruments,market,weights,funding,date){
  const b=previous?structuredClone(previous):{startedOn:date,paidCents:0,cashCents:0,positions:[],history:[]};
  for(const pos of b.positions){const m=market.find(x=>x.id===pos.id);if(!m||m.error||m.indicators?.stale)throw Error('Benchmark-Kurs fehlt.');Object.assign(pos,repricePosition(pos,m));}
@@ -171,10 +283,11 @@ function updateBenchmark(previous,instruments,market,weights,funding,date){
 function modelLimitBreaches(model,profile,market){
  const sectors=new Map(),currencies=new Map();
  for(const pos of model.positions){const u=model.universe?.find(x=>x.id===pos.id),m=market.find(x=>x.id===pos.id);if(!u||!m)return true;if(u.kind==='stock'){if(m.sector)sectors.set(m.sector,(sectors.get(m.sector)||0)+pos.valueCents);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.valueCents);}if(pos.valueCents>model.valueCents*profile.cap/10000+1)return true;}
- return model.cashCents+1<model.valueCents*profile.cash/10000||[...sectors.values()].some(v=>v>model.valueCents*profile.sectorLimit/10000+1)||[...currencies.values()].some(v=>v>model.valueCents*profile.currencyLimit/10000+1);
+ // B3 (v18): Die Cash-Untergrenze prüft driftBreached mit Hysterese; hier
+ // bleiben nur harte Positions-, Branchen- und Währungsgrenzen.
+ return [...sectors.values()].some(v=>v>model.valueCents*profile.sectorLimit/10000+1)||[...currencies.values()].some(v=>v>model.valueCents*profile.currencyLimit/10000+1);
 }
-
-return {RULES_VERSION,mandate,mandateIdentity,strategicWeights,activeScore,allocateModel,validateModel,marketPrice,repricePosition,markModel,drift,depositDue,evolveModel,actualFresh,updateBenchmark,modelLimitBreaches};
+return {RULES_VERSION,REGIME,mandate,mandateIdentity,strategicWeights,regimeDistance,regimeSignal,regimeWeights,activeScore,allocateModel,validateModel,marketPrice,repricePosition,markModel,drift,groupDriftBps,driftBreached,depositDue,evolveModel,tradeCostBps,actualFresh,updateBenchmark,modelLimitBreaches};
 })();
 // supabase/functions/shared/http.js
 const __module3=(()=>{
@@ -542,7 +655,16 @@ function validateMirror(snapshot){
 }
 function mirrorShares(snapshot,instruments){validateMirror(snapshot);const omitted=[],rows=[];for(const p of snapshot.positions){const choices=instruments.filter(i=>i.isin===p.isin);const chosen=choices.find(i=>i.currencyCode==='EUR')||choices[0];if(chosen)rows.push({ticker:chosen.ticker,weight:p.weightBps});else omitted.push(p);}if(!rows.length)throw new ServiceError('MIRROR_EMPTY','Keine bekannte ISIN ist bei Trading212 handelbar. Der Pie bleibt unverändert.');return {shares:normalizeShares(rows),omitted,cashBps:snapshot.cashBps,original:snapshot.positions,groups:snapshot.groups||[],asOf:snapshot.asOf};}
 
-return {normalizeShares,pieShares,sharesHash,brokerSnapshot,indexInstruments,scoreFacts,validateMirror,mirrorShares};
+// B12 (v18): Slice-Validierung vor dem Pie-Write — Trading212-Pies mit mehr
+// als 50 Positionen oder Einzelgewichten unter 100 bps würden klemmen.
+function validatePieSlices(shares){
+ const entries=Object.entries(shares||{});
+ if(!entries.length||entries.length>50)throw new ServiceError('PIE_WEIGHTS_INVALID','Die Zielverteilung ist leer oder hat mehr als 50 Positionen. Die Zielpflege wird nicht gestartet.',{retryable:false});
+ if(entries.some(([,w])=>!(Number.isFinite(w)&&w*10000>=100)))throw new ServiceError('PIE_WEIGHTS_INVALID','Einzelgewichte unter 1 % (100 bps) sind im Pie nicht zulässig. Die Zielpflege wird nicht gestartet.',{retryable:false});
+ return shares;
+}
+
+return {normalizeShares,pieShares,sharesHash,brokerSnapshot,indexInstruments,scoreFacts,validateMirror,mirrorShares,validatePieSlices};
 })();
 // supabase/functions/investment-advisor/fundamentals.js
 const __module9=(()=>{
@@ -710,7 +832,7 @@ const {mandate,mandateIdentity,validateModel}=__module2;
 const {ServiceError,createDB,boundedJSON,diagnostics}=__module3;
 const {checkOpenRouter,modelId}=__module4;
 const {brokerClient}=__module6;
-const {brokerSnapshot,pieShares,sharesHash,normalizeShares,validateMirror,mirrorShares}=__module7;
+const {brokerSnapshot,pieShares,sharesHash,normalizeShares,validateMirror,mirrorShares,validatePieSlices}=__module7;
 const {parseWikifolioPortfolio,pieRefreshDelayMs,brokerScopeMessage}=__module10;
 const {marketService}=__module8;
 function createServicesHandler(input,fetcher=fetch){
@@ -794,8 +916,22 @@ async function ensureMarket(owner){const tasks=await db(own('v12_tasks',owner,'k
    const cached=(await db(own('wealth_cache',owner,'cache_key=eq.trading212-instruments')))[0];const instruments=cached&&Date.parse(cached.expires_at)>Date.now()?cached.payload:await broker('/equity/metadata/instruments');
    if(!Array.isArray(instruments)||Object.keys(desired).some(ticker=>!instruments.some(i=>i.ticker===ticker&&['STOCK','ETF'].includes(i.type))))throw new ServiceError('BROKER_INSTRUMENT_MISSING','Mindestens ein Zielinstrument ist nicht mehr im bestätigten Trading212-Katalog.');
   }
+  // B12 (v18): Slice-Validierung VOR dem Schreib-Lease — mehr als 50
+  // Positionen oder Einzelgewichte unter 100 bps würden beim Broker klemmen.
+  validatePieSlices(desired);
   await db('rpc/begin_v12_pie_write','POST',{p_owner:owner,p_pie:pie,p_expected:currentHash,p_desired:hash,p_shares:desired,p_task:task.id});
-  await broker('/equity/pies/'+pie,'POST',{instrumentShares:desired});
+  try{
+   await broker('/equity/pies/'+pie,'POST',{instrumentShares:desired});
+  }catch(e){
+   // B12 (v18): Bei endgültiger Ablehnung (HTTP 400) den anhängigen
+   // Schreibauftrag per finish_v12_pie_write auflösen statt bis zum
+   // Lease-Timeout zu sperren, und die Zielpflege mit klarem Fehler stoppen.
+   if(e?.status===400){
+    try{await db('rpc/finish_v12_pie_write','POST',{p_owner:owner,p_pie:pie,p_task:task.id,p_hash:hash,p_reason:'Trading212 hat die Zielgewichte abgelehnt (HTTP 400). Der Schreibauftrag wurde zurückgesetzt.'});}catch{}
+    await db(own('v12_pie_bindings',owner,'pie_id=eq.'+pie),'PATCH',{status:'conflict',enabled:false,last_error:{code:'PIE_WRITE_REJECTED',message:'Trading212 hat die Zielgewichte abgelehnt (HTTP 400). Die automatische Zielpflege wurde deaktiviert. Verteilung prüfen und erneut freigeben.'}}).catch(()=>{});
+   }
+   throw e;
+  }
   // Read-back is a separate invocation, respecting broker limits and surviving timeouts.
   return {result:{awaitingConfirmation:true,reason},delay:60};
  }
