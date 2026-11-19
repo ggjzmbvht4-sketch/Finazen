@@ -1,8 +1,8 @@
 import {historicalPortfolio} from './history.js';
-import {money,cents,yearRows,monthAdd,uid,project} from './engine.js';
+import {money,pct,cents,yearRows,monthAdd,uid,project} from './engine.js';
 import {planEdit,stages,comparePortfolio} from './desktop-core.js';
 export function desktop(ctx){
- const {state,month,esc,modal,close,commit,entryForm,go}=ctx;
+ const {state,month,esc,modal,close,commit,toast,entryForm,go}=ctx;
  const btn=(action,label,id='')=>`<button class="btn" data-desk="${action}" data-id="${esc(id)}">${label}</button>`;
  const field=(n,label,v='',type='number',more='')=>`<label>${label}<input name="${n}" type="${type}" value="${esc(v)}" ${more}></label>`;
  const select=(n,label,options,value)=>`<label>${label}<select name="${n}">${options.map(([k,v])=>`<option value="${k}" ${k===value?'selected':''}>${v}</option>`).join('')}</select></label>`;
@@ -17,7 +17,7 @@ export function desktop(ctx){
  }
  apply();matchMedia('(prefers-color-scheme:dark)').addEventListener('change',apply);
  function settings(){
-  const p=pref();return `<section class="card"><h2>Darstellung und Start</h2><form id="desk-preferences"><div class="form-grid">${select('theme','Darstellung',[['system','System'],['light','Hell'],['dark','Dunkel']],p.theme||'system')}${select('color','Akzentfarbe',[['green','Türkis'],['blue','Blau'],['violet','Violett'],['petrol','Petrol']],p.color||'green')}${select('density','Zeilenabstand',[['comfortable','Großzügig'],['compact','Kompakt']],p.density||'comfortable')}${select('contrast','Kontrast',[['normal','Standard'],['high','Hoch']],p.contrast||'normal')}${select('size','Schriftgröße',[['14','14 px'],['16','16 px'],['18','18 px']],String(p.size||14))}${select('start','Startansicht',[['home','Übersicht'],['reserves','Jahresplanung'],['investments','Portfolio'],['wealth','Advisor']],p.start||'home')}</div><label class="checkbox"><input name="hide" type="checkbox" ${p.hide?'checked':''}>Geldbeträge verdecken</label><button class="btn primary">Darstellung speichern</button></form><p>Diese Auswahl gilt für diesen Browser.</p></section>`;
+  const p=pref();return `<section class="card"><h2>Darstellung und Start</h2><form id="desk-preferences"><div class="form-grid">${select('theme','Darstellung',[['system','System'],['light','Hell'],['dark','Dunkel']],p.theme||'system')}${select('color','Akzentfarbe',[['green','Türkis'],['blue','Blau'],['violet','Violett'],['petrol','Petrol']],p.color||'green')}${select('density','Zeilenabstand',[['comfortable','Großzügig'],['compact','Kompakt']],p.density||'comfortable')}${select('contrast','Kontrast',[['normal','Standard'],['high','Hoch']],p.contrast||'normal')}${select('size','Schriftgröße',[['14','14 px'],['16','16 px'],['18','18 px']],String(p.size||14))}${select('start','Startansicht',[['home','Übersicht'],['reserves','Jahresplan'],['investments','Portfolio'],['wealth','Advisor']],p.start||'home')}</div><label class="checkbox"><input name="hide" type="checkbox" ${p.hide?'checked':''}>Geldbeträge verdecken</label><button class="btn primary">Darstellung speichern</button></form><p>Diese Auswahl gilt für diesen Browser.</p></section>`;
  }
  function matrix(){
   const s=state(),rows=yearRows(s,month().slice(0,4),'forecast'),plan=yearRows(s,month().slice(0,4),'plan');
@@ -31,7 +31,7 @@ export function desktop(ctx){
   return `<svg viewBox="0 0 1000 240" role="img" aria-label="Gespeicherte Depotstände im Vergleichszeitraum"><polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="3"/>${result.benchmark===null?'':`<line x1="30" y1="${210-result.first.value/max*180}" x2="970" y2="${210-result.benchmark/max*180}" stroke="#b48542" stroke-width="2" stroke-dasharray="7 5"/>`}<text x="30" y="235" fill="currentColor">${result.first.date}</text><text x="850" y="235" fill="currentColor">${result.last.date}</text></svg>`;
  }
  function perf(){
-  const s=state();form('performance','Gesamtportfolio vergleichen',field('from','Von',s.portfolio.snapshots[0]?.date||s.anchor+'-01','date','required')+field('to','Bis',new Date().toISOString().slice(0,10),'date','required')+select('source','Bewertungsgrundlage',[['snapshots','Gespeicherte Gesamtdepotstände'],['history','Aus datierten Kursen und Buchungen rekonstruieren']],'snapshots')+select('scope','Vergleichsumfang',[['all','Gesamtportfolio'],['liquid','Ohne private Beteiligungen'],...Array.from(new Set(s.portfolio.assets.filter(a=>a.kind!=='pie').map(a=>a.provider).filter(Boolean))).map(name=>['provider:'+esc(name),esc(name)])],'all')+field('file','Benchmark CSV · optional','','file','accept=".csv"')+'<p>Benchmark-Datei mit Kopfzeile date,level und bereinigten Total-Return-Indexständen. Für Start, Ende und jeden Zahlungsstrom wird ein Stand benötigt. Die Benchmark wird mit denselben Zahlungsströmen berechnet.</p>','Vergleichen');
+  const s=state();form('performance','Gesamtportfolio vergleichen',field('from','Von',[...s.portfolio.snapshots].sort((a,b)=>a.date.localeCompare(b.date))[0]?.date||s.anchor+'-01','date','required')+field('to','Bis',new Date().toISOString().slice(0,10),'date','required')+select('source','Bewertungsgrundlage',[['snapshots','Gespeicherte Gesamtdepotstände'],['history','Aus datierten Kursen und Buchungen rekonstruieren']],'snapshots')+select('scope','Vergleichsumfang',[['all','Gesamtportfolio'],['liquid','Ohne private Beteiligungen'],...Array.from(new Set(s.portfolio.assets.filter(a=>a.kind!=='pie').map(a=>a.provider).filter(Boolean))).map(name=>['provider:'+esc(name),esc(name)])],'all')+field('file','Benchmark CSV · optional','','file','accept=".csv"')+'<p>Benchmark-Datei mit Kopfzeile date,level und bereinigten Total-Return-Indexständen. Für Start, Ende und jeden Zahlungsstrom wird ein Stand benötigt. Die Benchmark wird mit denselben Zahlungsströmen berechnet.</p>','Vergleichen');
  }
  async function click(t){
   const a=t.dataset.desk,id=t.dataset.id,s=state();
@@ -41,19 +41,20 @@ export function desktop(ctx){
   if(a==='performance'){perf();return;}
   if(a==='cell'){
    const e=s.entries.find(e=>e.id===id),m=t.dataset.month,value=e.planOverrides?.[m]??e.amount;editBase=JSON.stringify(s);
-   form('cell',e.name+' · '+m,field('month','Ab Monat',m,'month','readonly required')+field('amount','Planbetrag in €',value/100,'number','min="0" step="0.01" required')+select('scope','Gültigkeit',[['month','Nur diesen Monat'],['future','Ab diesem Monat'],['range','Bis einschließlich …']],'month')+field('end','Bis Monat',m,'month')+'<p id="cell-preview" aria-live="polite"></p>','Plan ändern',id);return;
+   form('cell',e.name+' · '+m,field('month','Ab Monat',m,'month','readonly required')+field('amount','Planbetrag in €',value/100,'number','min="0" step="0.01" required')+select('scope','Gültigkeit',[['month','Nur diesen Monat'],['future','Ab diesem Monat'],['range','Bis einschließlich …']],'month')+field('end','Bis Monat',m,'month','disabled')+'<p class="form-help" id="cell-end-hint">Bei „Nur diesen Monat“ gilt die Änderung automatisch nur für diesen Monat. Bei „Ab diesem Monat“ gilt sie bis zum Planende.</p><p id="cell-preview" aria-live="polite"></p>','Plan ändern',id);return;
   }
   if(a==='salary')form('salary','Einkommen planen',field('name','Bezeichnung','Grundentgelt','text','required')+field('gross','Brutto in €','','number','min="0" step="0.01" required')+field('ratio','Eigene Nettoquote (%)','65','number','min="0" max="100" step="0.01" required')+field('start','Ab Monat',month(),'month','required')+select('interval','Zahlung',[['1','Monatlich'],['0','Einmalig'],['12','Jährliche Sonderzahlung']],'1')+field('day','Zahlungstag','28','number','min="1" max="31" required'),'Einnahme ergänzen');
  }
  function readEdit(f){const d=new FormData(f);return planEdit(state(),f.dataset.id,d.get('month'),cents(d.get('amount')),d.get('scope'),d.get('end'));}
  function preview(f){
   if(f.id!=='desk-cell')return;
-  try{const d=new FormData(f),s=readEdit(f),r=project(s,d.get('month')).at(-1),end=project(s,d.get('month').slice(0,4)+'-12').at(-1),v=stages(r);f.querySelector('#cell-preview').textContent='Vorschau · Überschuss 1 '+money(v.first)+' · 2 '+money(v.second)+' · 3 '+money(v.third)+' · frei Ende Jahr '+money(end.free);}catch(e){f.querySelector('#cell-preview').textContent=e.message;}
+  const d=new FormData(f),endField=f.querySelector('[name=end]'),hint=f.querySelector('#cell-end-hint');if(endField)endField.disabled=d.get('scope')==='month';if(hint)hint.hidden=d.get('scope')==='range';
+  try{const s=readEdit(f),r=project(s,d.get('month')).at(-1),end=project(s,d.get('month').slice(0,4)+'-12').at(-1),v=stages(r);f.querySelector('#cell-preview').textContent='Vorschau · Überschuss 1 '+money(v.first)+' · 2 '+money(v.second)+' · 3 '+money(v.third)+' · frei Ende Jahr '+money(end.free);}catch(e){f.querySelector('#cell-preview').textContent=e.message;}
  }
  async function submit(f){
   const d=new FormData(f);
-  if(f.id==='desk-preferences'){localStorage.setItem('kontur-appearance',JSON.stringify(Object.fromEntries(d)));apply();return;}
-  if(f.id==='desk-cell'){if(editBase!==JSON.stringify(state()))throw Error('Plan geändert. Zelle erneut öffnen.');commit(readEdit(f));close();}
+  if(f.id==='desk-preferences'){localStorage.setItem('kontur-appearance',JSON.stringify(Object.fromEntries(d)));apply();toast('Darstellung gespeichert.');return;}
+  if(f.id==='desk-cell'){if(editBase!==JSON.stringify(state()))throw Error('Plan geändert. Zelle erneut öffnen.');commit(readEdit(f));close();toast('Planbetrag geändert.');}
   if(f.id==='desk-salary'){
    const s=structuredClone(state()),amount=cents(Number(d.get('gross'))*Number(d.get('ratio'))/100);
    s.entries.push({id:uid(),type:'income',name:String(d.get('name')),amount,start:d.get('start'),end:'',interval:Number(d.get('interval')),day:Number(d.get('day')),reserveId:'',note:'Brutto '+d.get('gross')+' € · eigene Nettoquote '+d.get('ratio')+' %'});commit(s);close();
@@ -71,7 +72,7 @@ export function desktop(ctx){
     portfolio.snapshots=history.filter(x=>x.known).map(x=>({...x,costKnown:true,contribution:portfolio.events.filter(e=>e.date<=x.date&&e.type==='contribution').reduce((n,e)=>n+e.amount,0)}));
    }
    const r=comparePortfolio(portfolio,d.get('from'),d.get('to'),benchmark),row=(n,v)=>'<div class="reserve-detail"><span>'+n+'</span><strong class="amount">'+v+'</strong></div>';
-   modal('Performance · '+r.first.date+' bis '+r.last.date,chart(r)+row('Eigene Nettoeinzahlungen',money(r.net))+row('Anlageergebnis',money(r.gain))+row(r.exact?'Zeitgewichtete Rendite':'Zeitgewichtete Näherung · Modified Dietz',r.returnPct===null?'Nicht berechenbar':r.returnPct.toFixed(2)+' %')+row('Persönliche Rendite · XIRR p. a.',r.xirr===null?'Nicht eindeutig berechenbar':(r.xirr*100).toFixed(2)+' %')+row('Benchmark-Endvermögen mit denselben Zahlungsströmen',r.benchmark===null?'Passende Benchmarkstände fehlen':money(r.benchmark))+row('Portfolio minus Benchmark',r.benchmark===null?'–':money(r.last.value-r.benchmark))+'<p>Linie grün · gespeicherte Gesamtdepotwerte einschließlich damaliger Schätzwerte. Gestrichelte Verbindung · Benchmark-Start und -Ende. Keine interpolierten Benchmarkkurse. Für eine exakte zeitgewichtete Rendite sind Bewertungen an jedem Zahlungszeitpunkt nötig.</p>',true);
+   modal('Performance · '+r.first.date+' bis '+r.last.date,chart(r)+row('Eigene Nettoeinzahlungen',money(r.net))+row('Anlageergebnis',money(r.gain))+row(r.exact?'Zeitgewichtete Rendite':'Zeitgewichtete Näherung · Modified Dietz',r.returnPct===null?'Nicht berechenbar':pct(r.returnPct,2))+row('Persönliche Rendite · XIRR p. a.',r.xirr===null?'Nicht eindeutig berechenbar':pct(r.xirr*100,2))+row('Benchmark-Endvermögen mit denselben Zahlungsströmen',r.benchmark===null?'Passende Benchmarkstände fehlen':money(r.benchmark))+row('Portfolio minus Benchmark',r.benchmark===null?'–':money(r.last.value-r.benchmark))+'<p>Linie grün · gespeicherte Gesamtdepotwerte einschließlich damaliger Schätzwerte. Gestrichelte Verbindung · Benchmark-Start und -Ende. Keine interpolierten Benchmarkkurse. Für eine exakte zeitgewichtete Rendite sind Bewertungen an jedem Zahlungszeitpunkt nötig.</p>',true);
   }
  }
  return {matrix,settings,click,submit,preview,start:pref().start||'home'};
