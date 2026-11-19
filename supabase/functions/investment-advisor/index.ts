@@ -49,11 +49,21 @@ function mandate(goal, enabled = true) {
   if (goal.emergencyFund !== 'covered') throw Error('Zuerst einen verfügbaren Notgroschen außerhalb dieser Strategie einplanen.');
   if (goal.approach === 'active' && (goal.experience !== 'experienced' || goal.years < 5 || goal.lossTolerance < 30 || goal.liquidityYears > 0 && goal.liquidityYears < 5)) throw Error('Aktive Aktienstrategien benötigen Erfahrung, mindestens fünf Jahre verfügbares Kapital und mindestens 30 % Verlusttragfähigkeit.');
   if (goal.liquidityYears > 0 && goal.liquidityYears < goal.years) throw Error('Anlagehorizont an den früheren Liquiditätsbedarf anpassen.');
+  // W10 (R1): Mindestanlage — Startkapital plus sechs monatliche Sparraten
+  // müssen zusammen mindestens 100 Euro ergeben.
+  if (goal.start + goal.rate * 6 < 10000) throw Error('Mindestanlage nicht erreicht: Startkapital plus sechs monatliche Sparraten müssen zusammen mindestens 100 Euro ergeben.');
+  // W13 (R4): Optionale Einkommens-/Vermögensangaben und Plausibilität der
+  // Sparrate gegen das deklarierte monatliche Einkommen.
+  const optCents = v => v === undefined || v === null || (Number.isSafeInteger(v) && v >= 0 && v <= 1e14);
+  if (!optCents(goal.monthlyIncomeCents) || !optCents(goal.liquidAssetsCents)) throw Error('Angaben zu Einkommen und verfügbarem Vermögen prüfen.');
+  if (Number.isSafeInteger(goal.monthlyIncomeCents) && goal.rate > goal.monthlyIncomeCents) throw Error('Die monatliche Sparrate übersteigt das deklarierte monatliche Einkommen. Bitte Sparrate oder Angaben anpassen.');
   for (const key of ['sectorLimit','currencyLimit']) if (!integer(goal[key],100,10000)) throw Error('Branchen- und Listingwährungsgrenzen prüfen.');
   if (!Array.isArray(goal.exclude) || goal.exclude.length > 200 || goal.exclude.some(x=>typeof x!=='string')) throw Error('Ausschlüsse prüfen.');
-  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?7:30,driftBps:500};
+  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),...(Number.isSafeInteger(goal.monthlyIncomeCents)?{monthlyIncomeCents:goal.monthlyIncomeCents}:{}),...(Number.isSafeInteger(goal.liquidAssetsCents)?{liquidAssetsCents:goal.liquidAssetsCents}:{}),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?7:30,driftBps:500};
 }
-function mandateIdentity(profile) { const {enabled,...identity}=profile; return JSON.stringify(Object.fromEntries(Object.entries(identity).sort(([a],[b])=>a.localeCompare(b)))); }
+// W13 (R4): confirmedAt bleibt außen vor — eine Re-Bestätigung der
+// Geeignetheitsprüfung ändert das Mandat nicht.
+function mandateIdentity(profile) { const {enabled,confirmedAt,...identity}=profile; return JSON.stringify(Object.fromEntries(Object.entries(identity).sort(([a],[b])=>a.localeCompare(b)))); }
 function strategicWeights(p) {
   if(p.approach==='active'){const stock=Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.lossTolerance*150,10000-p.cash);return {stock,cash:10000-stock};}
   const equity=Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.years<3?0:p.years<5?3000:10000,p.lossTolerance*150,10000-p.cash);
@@ -80,15 +90,22 @@ function allocateModel(profile, candidates, market) {
     const eligible=candidates.filter(u=>u.group===group && u.brokerConfirmed && !profile.exclude.includes(u.isin) && market.some(m=>m.id===u.id&&!m.error&&!m.indicators?.stale) && (profile.approach!=='active'||activeScore(market.find(m=>m.id===u.id)?.facts,market.find(m=>m.id===u.id)?.indicators)))
       .sort((a,b)=>profile.approach==='active'?(activeScore(market.find(m=>m.id===b.id).facts,market.find(m=>m.id===b.id).indicators).value-activeScore(market.find(m=>m.id===a.id).facts,market.find(m=>m.id===a.id).indicators).value||a.id.localeCompare(b.id)):(a.fee-b.fee||a.id.localeCompare(b.id)));
     for(const u of eligible) {
-      const m=market.find(m=>m.id===u.id),sector=m.sector||'unknown';
-      const weightBps=Math.max(0,Math.min(left,profile.cap,profile.sectorLimit-(sectors.get(sector)||0),profile.currencyLimit-(currencies.get(u.currency)||0)));
+      // W12 (R3): Branchen- und Währungsgrenzen gelten nur für Einzelaktien;
+      // ETF-/Katalogpositionen ohne sector-Feld werden nicht als 'unknown'
+      // gegen die Branchenkappe aggregiert.
+      const m=market.find(m=>m.id===u.id),sector=m.sector||null,stock=u.kind==='stock';
+      const weightBps=Math.max(0,Math.min(left,profile.cap,
+        ...(stock&&sector?[profile.sectorLimit-(sectors.get(sector)||0)]:[]),
+        ...(stock?[profile.currencyLimit-(currencies.get(u.currency)||0)]:[])));
       if(!weightBps) continue;
       const score=profile.approach==='active'?activeScore(m.facts,m.indicators):null;
       const alternative=eligible.find(x=>x.id!==u.id);
       const reason=score?'Bewertung '+score.value.toFixed(1)+'/100 (je 20 %): '+Object.entries(score.components).map(([k,v])=>({quality:'Qualität',valuation:'Bewertung',debt:'Verschuldung',growth:'Wachstum',momentum:'Momentum'})[k]+' '+v.toFixed(0)).join(', ')+'. Berichtsstand '+m.facts.asOf+'.':
         'Strategischer '+({world:'Industrieländer',em:'Schwellenländer',bond:'Anleihen'})[group]+'-Baustein; Produktkosten laut gepflegtem Katalog '+(u.fee/100).toFixed(2)+' % p. a.'+(alternative?' Vergleich: '+alternative.name+' ('+(alternative.fee/100).toFixed(2)+' %).':' Kein weiterer bestätigter Baustein dieser Klasse mit ausreichenden Daten.');
       positions.push({id:u.id,weightBps,reason});
-      sectors.set(sector,(sectors.get(sector)||0)+weightBps);currencies.set(u.currency,(currencies.get(u.currency)||0)+weightBps);left-=weightBps;
+      if(stock&&sector)sectors.set(sector,(sectors.get(sector)||0)+weightBps);
+      if(stock)currencies.set(u.currency,(currencies.get(u.currency)||0)+weightBps);
+      left-=weightBps;
       if(!left) break;
     }
     if(left) throw new ServiceError('ALLOCATION_IMPOSSIBLE','Keine belastbare Zusammensetzung: Für '+group+' fehlen bestätigte Produkte, Daten oder Spielraum innerhalb deiner Grenzen. Bestehendes Modell bleibt erhalten.');
@@ -103,7 +120,10 @@ function validateModel(rec,p,universe,market) {
     if(!u?.brokerConfirmed||seen.has(pos.id)||p.exclude.includes(u.isin)||!Number.isInteger(pos.weightBps)||pos.weightBps<=0||pos.weightBps>p.cap||!m||m.error||m.indicators?.stale)throw Error('Instrument, Kursstand oder Positionsgrenze ungültig.');
     if(p.approach==='longterm'&&(u.kind!=='etf'||!u.ucits||!['world','em','bond'].includes(u.group)))throw Error('Nur klassifizierte UCITS-ETFs sind im langfristigen Modell zulässig.');
     if(p.approach==='active'&&(u.kind!=='stock'||!activeScore(m.facts,m.indicators)))throw Error('Aktienbewertung unvollständig.');
-    const sector=m.sector||'unknown';sectors.set(sector,(sectors.get(sector)||0)+pos.weightBps);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.weightBps);seen.add(pos.id);total+=pos.weightBps;
+    // W12 (R3): Grenzen nur für Einzelaktien aggregieren; ETF-/Katalog-
+    // positionen ohne sector-Feld zählen nicht als 'unknown'-Branche.
+    if(u.kind==='stock'){if(m.sector)sectors.set(m.sector,(sectors.get(m.sector)||0)+pos.weightBps);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.weightBps);}
+    seen.add(pos.id);total+=pos.weightBps;
   }
   if(total!==10000||[...sectors.values()].some(x=>x>p.sectorLimit)||[...currencies.values()].some(x=>x>p.currencyLimit))throw Error('Gesamtgewicht, Branche oder Listingwährungsgrenze verletzt.');
   const bounds=strategicWeights(p);
@@ -119,6 +139,9 @@ function repricePosition(position,market){
   if(!row)throw Error('Historischer Referenzkurs für Modellfortschreibung fehlt.');
   // FX-Historie fehlt für den Referenztag: auf den aktuellen FX-Kurs
   // zurückfallen und vermerken, statt den Betreuungszyklus zu blockieren.
+  // Hinweis (R9): Das Frontend (managed-core.js) weicht hier bewusst ab und
+  // verwirft die Fortschreibung ohne FX-Referenz; die Edge Function wählt
+  // die markierte Schätzung, damit der Cron-Betreuungszyklus nicht stallt.
   if(!(fx>0)&&market.fx>0){fx=market.fx;next.fxEstimated=true;}else delete next.fxEstimated;
   if(!(fx>0))throw Error('Historischer Referenzkurs für Modellfortschreibung fehlt.');
   next.units*=next.priceEUR/(row.close*fx);
@@ -167,10 +190,13 @@ function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,
   return {model,transactions};
 }
 // Buy-and-hold-Referenz, finanziert an denselben Modelldaten; keine rückblickenden Kurse.
-function updateBenchmark(previous,instruments,market,weights,start,deposit,date){
+// W11 (R2): Die Finanzierung folgt dauerhaft dem Modell — der Aufrufer
+// übergibt das Delta von model.paidCents gegenüber benchmark.paidCents
+// (Nachbuchung), nicht die fällige Sparrate.
+function updateBenchmark(previous,instruments,market,weights,funding,date){
  const b=previous?structuredClone(previous):{startedOn:date,paidCents:0,cashCents:0,positions:[],history:[]};
  for(const pos of b.positions){const m=market.find(x=>x.id===pos.id);if(!m||m.error||m.indicators?.stale)throw Error('Benchmark-Kurs fehlt.');Object.assign(pos,repricePosition(pos,m));}
- const funding=(previous?0:start)+deposit;b.paidCents+=funding;b.cashCents+=funding;
+ b.paidCents+=funding;b.cashCents+=funding;
  for(const [group,bps]of Object.entries(weights)){
   if(group==='cash'||!bps)continue;
   const u=instruments.find(u=>u.group===group);if(!u)throw Error('Benchmark-Instrument fehlt.');
@@ -185,7 +211,7 @@ function updateBenchmark(previous,instruments,market,weights,start,deposit,date)
 }
 function modelLimitBreaches(model,profile,market){
  const sectors=new Map(),currencies=new Map();
- for(const pos of model.positions){const u=model.universe?.find(x=>x.id===pos.id),m=market.find(x=>x.id===pos.id);if(!u||!m)return true;const sector=m.sector||'unknown';sectors.set(sector,(sectors.get(sector)||0)+pos.valueCents);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.valueCents);if(pos.valueCents>model.valueCents*profile.cap/10000+1)return true;}
+ for(const pos of model.positions){const u=model.universe?.find(x=>x.id===pos.id),m=market.find(x=>x.id===pos.id);if(!u||!m)return true;if(u.kind==='stock'){if(m.sector)sectors.set(m.sector,(sectors.get(m.sector)||0)+pos.valueCents);currencies.set(u.currency,(currencies.get(u.currency)||0)+pos.valueCents);}if(pos.valueCents>model.valueCents*profile.cap/10000+1)return true;}
  return model.cashCents+1<model.valueCents*profile.cash/10000||[...sectors.values()].some(v=>v>model.valueCents*profile.sectorLimit/10000+1)||[...currencies.values()].some(v=>v>model.valueCents*profile.currencyLimit/10000+1);
 }
 
@@ -493,6 +519,14 @@ async function savePlan(env,db,owner,nextData,expectedRevision){
 }
 function configuration(env){return {aiReady:Boolean(env.openrouterKey),marketReady:Boolean(env.twelveDataKey),newsReady:Boolean(env.newsKey)};}
 
+// W14 (S2): Externe Marktdaten-Abrufe (Twelve Data/Finnhub) sind im
+// Mehrbenutzerbetrieb auf das abrechnende Konto beschränkt (Muster
+// billingOwner-Gate aus kontur-services). Greift nur, wenn billingOwner
+// gesetzt ist.
+function requireBillingOwner(env,owner){
+ if(env.billingOwner&&owner!==env.billingOwner)throw new ServiceError('MULTIUSER_DISABLED','Diese Funktion ist im Mehrbenutzerbetrieb deaktiviert.',{status:403});
+}
+
 // Fundstelle: advisor-ui.js load() / plan-ui.js loadRuns() / features-ui.js open()
 async function actionList(env,db,owner,data){
  const strategyKey=/^[0-9a-f-]{36}$/i.test(data.strategyId||'')?data.strategyId:'';
@@ -531,6 +565,7 @@ async function actionSaveProfile(env,db,owner,data){
 async function actionRun(env,db,fetcher,owner,data,{scheduled=false}={}){
  const mode=data.mode==='analysis'?'analysis':'advisor';
  const strategyKey=/^[0-9a-f-]{36}$/i.test(data.strategyId||'')?data.strategyId:'';
+ requireBillingOwner(env,owner);
  if(data.requestId){
   const existing=await db('advisor_runs?owner_id=eq.'+owner+'&request_id=eq.'+encodeURIComponent(String(data.requestId)));
   if(existing[0])return {run:existing[0],reused:true};
@@ -590,6 +625,7 @@ async function actionAdopt(env,db,owner,data){
 
 // Fundstelle: features-ui.js marketOpen()
 async function actionMarket(env,db,fetcher,owner){
+ requireBillingOwner(env,owner);
  const profRow=(await db('advisor_profiles?owner_id=eq.'+owner+'&strategy_key=eq.'))[0];
  const profile=profRow?.profile;
  if(!profile?.universe?.length)throw new ServiceError('PROFILE_MISSING','Zuerst ein Risikoprofil mit freigegebenen Wertpapieren speichern.');
@@ -599,7 +635,8 @@ async function actionMarket(env,db,fetcher,owner){
 }
 
 // Fundstelle: workbench.js submit() Marktsuche
-async function actionSearchMarket(env,fetcher,data){
+async function actionSearchMarket(env,fetcher,owner,data){
+ requireBillingOwner(env,owner);
  const query=String(data.query||'').trim();
  if(query.length<2||query.length>100)throw new ServiceError('QUERY_INVALID','Name, Ticker oder ISIN mit mindestens zwei Zeichen eingeben.');
  const rows=await twelveDataSearch(env,query,fetcher);
@@ -651,7 +688,7 @@ async function actionWealthHistory(env,db,owner,data){
 }
 // managed-ui.js activate(): Mandat aus dem Anlageziel ableiten, Betreuung
 // starten; erste Prüfung übernimmt der Betreuungszyklus (dispatch).
-async function actionWealthSetEnabled(env,db,owner,data,enabled){
+async function actionWealthSetEnabled(env,db,fetcher,owner,data,enabled){
  if(data.consent!==true)throw new ServiceError('CONSENT','Bitte die Bedingungen der automatischen Betreuung bestätigen.');
  const key=strategyKeyOf(data);
  const planRow=(await db('finance_plans?owner_id=eq.'+owner))[0];
@@ -665,6 +702,19 @@ async function actionWealthSetEnabled(env,db,owner,data,enabled){
  if(enabled){
   const existing=(await db('advisor_profiles?owner_id=eq.'+owner+'&strategy_key=eq.'+key))[0];
   if(existing&&existing.profile?.mandateVersion!==2&&existing.enabled===true)throw new ServiceError('LEGACY_ACTIVE','Für dieses Anlageziel ist noch der klassische KI-Advisor aktiv. Deaktiviere ihn zuerst im Advisor-Bereich.',{status:409});
+  // W12 (R3): Machbarkeits-Probe — die Zielallokation muss mit dem
+  // aktuellen Universum (Katalog + Broker-Abgleich) und den Mandatsgrenzen
+  // möglich sein, bevor die Betreuung aktiviert wird. Keine Persistenz.
+  try{
+   const probe=await buildManagedUniverse(env,db,fetcher,owner,profile,null);
+   validateModel(allocateModel(profile,probe.universe,probe.market),profile,probe.universe,probe.market);
+  }catch(e){
+   if(e instanceof ServiceError&&(e.code==='UNIVERSE_EMPTY'||e.code==='ALLOCATION_IMPOSSIBLE'))
+    throw new ServiceError(e.code,safeMessage(e.message).replace('Bestehendes Modell bleibt erhalten.','Die automatische Betreuung wurde nicht aktiviert.'),{status:409});
+   throw e;
+  }
+  // W13 (R4): Die Aktivierung gilt als Bestätigung der Geeignetheitsprüfung.
+  profile.confirmedAt=new Date().toISOString();
  }
  await db('advisor_profiles?on_conflict=owner_id,strategy_key','POST',{owner_id:owner,strategy_key:key,profile,enabled,next_due:enabled?new Date().toISOString():null,setup_error:null,updated_at:new Date().toISOString()});
  if(enabled){
@@ -673,7 +723,11 @@ async function actionWealthSetEnabled(env,db,owner,data,enabled){
  }else{
   await db('advisor_jobs?owner_id=eq.'+owner+'&strategy_key=eq.'+key+'&status=eq.queued','PATCH',{status:'failed',error:'Betreuung pausiert.',finished_at:new Date().toISOString()});
  }
- return {saved:true,profile};
+ // W13 (R4): Ohne deklarierte Einkommens-/Vermögensdaten keine Ablehnung,
+ // aber ein Warnhinweis im Ergebnis.
+ const warnings=[];
+ if(enabled&&!Number.isSafeInteger(goal.monthlyIncomeCents))warnings.push('Hinweis zur Geeignetheitsprüfung: Einkommen und verfügbares Vermögen wurden nicht angegeben; die Plausibilität der Sparrate wurde nur anhand von Verlusttragfähigkeit und Liquiditätsbedarf geprüft.');
+ return {saved:true,profile,...(warnings.length?{warnings}:{})};
 }
 
 // ----------------------------------------------------------------------------
@@ -760,17 +814,24 @@ async function careCycle(env,db,fetcher,profileRow){
   const planRow=(await db('finance_plans?owner_id=eq.'+owner))[0];
   const goal=planRow?.data?.strategies?.find(g=>g.id===key);
   if(!goal)throw new ServiceError('PLAN_MISSING','Anlageziel wurde aus dem Finanzplan entfernt.');
+  // W13 (R4): Jährliche Re-Bestätigung der Geeignetheitsprüfung — sonst
+  // pausiert die Betreuung über den setup_error-Pfad (next_due +24 h).
+  if(profile.confirmedAt&&Date.now()-Date.parse(profile.confirmedAt)>365.25*dayMs)throw new ServiceError('CONFIRMATION_DUE','Bitte die Geeignetheitsprüfung erneut bestätigen: Die Angaben sind älter als zwölf Monate. Die automatische Betreuung ist bis zur erneuten Bestätigung pausiert.');
   if(mandateIdentity(mandate(goal,profile.enabled))!==mandateIdentity(profile))throw new ServiceError('MANDATE_CHANGED','Mandat wurde geändert; Betreuung im Anlageziel erneut bestätigen.');
   const modelRow=(await db('wealth_models?owner_id=eq.'+owner+'&strategy_key=eq.'+key))[0];
   let model=modelRow?.model||null;
   // Glidepath: Aktienquote sinkt mit dem Resthorizont. Der effektive
   // Resthorizont wird aus dem Mandatsbeginn (Modell) abgeleitet; das
   // gespeicherte Mandat (mandateIdentity) bleibt unverändert.
-  const elapsedYears=model?.startedOn?Math.max(0,Math.round((Date.parse(date)-Date.parse(model.startedOn))/(365.25*dayMs))):0;
+  const elapsedYears=model?.startedOn?Math.max(0,Math.floor((Date.parse(date)-Date.parse(model.startedOn))/(365.25*dayMs))):0; // R5: Resthorizont abrunden
   const effectiveProfile={...profile,years:Math.max(1,profile.years-elapsedYears)};
   const {universe,market,coverage,benchInstruments}=await buildManagedUniverse(env,db,fetcher,owner,profile,model);
   if(model)model=markModel(model,market,date);
   const dueDeposit=depositDue(model,profile,date);
+  // W10 (R1): Modelle ohne Kapital und ohne fällige Einzahlung werden nicht
+  // dauerhaft rebalanciert und lösen keinen KI-Kommentar aus; next_due
+  // dreht im normalen Rhythmus weiter.
+  const dormant=Boolean(model&&model.valueCents===0&&dueDeposit===0);
   const reviewDue=!model||!model.reviewedOn||(Date.parse(date)-Date.parse(model.reviewedOn))/dayMs>=(profile.reviewDays||30);
   let rec=model?.recommendation||null,rebalance=false;
   // Strategieprüfung: effektive Zielquote (Resthorizont) gegen die aktuelle
@@ -782,14 +843,27 @@ async function careCycle(env,db,fetcher,profileRow){
    for(const p of rec.positions){const g=universe.find(u=>u.id===p.id)?.group||'unknown';actual[g]=(actual[g]||0)+p.weightBps;}
    return Object.entries(t).some(([g,v])=>g!=='cash'&&(actual[g]||0)!==v)||(actual.cash||0)!==t.cash;
   };
-  if(reviewDue||!rec||targetDrift()||(model&&(drift(model,rec,universe)>=(profile.driftBps??500)||modelLimitBreaches(model,profile,market)))){
+  if(!dormant&&(reviewDue||!rec||targetDrift()||(model&&(drift(model,rec,universe)>=(profile.driftBps??500)||modelLimitBreaches(model,profile,market))))){
    rec=validateModel(allocateModel(effectiveProfile,universe,market),effectiveProfile,universe,market);rebalance=true;
   }
   let transactions=[];
   if(rebalance||dueDeposit>0||!model){const out=evolveModel(model,rec,universe,market,profile,date,{rebalance,deposit:dueDeposit});model=out.model;transactions=out.transactions;}
   model.reviewedOn=rebalance?date:(model.reviewedOn||model.startedOn);
-  try{model.benchmark=updateBenchmark(model.benchmark||null,benchInstruments,market,strategicWeights(effectiveProfile),model.benchmark?0:profile.start,dueDeposit,date);model.benchmarkError=null;}
+  try{
+   const benchFunding=Math.max(0,model.paidCents-(model.benchmark?.paidCents||0));
+   model.benchmark=updateBenchmark(model.benchmark||null,benchInstruments,market,strategicWeights(effectiveProfile),benchFunding,date);model.benchmarkError=null;
+  }
   catch(e){model.benchmarkError=safeMessage(e.message);}
+  // R11-light: Erreicht der Drawdown des Modells (vs. Höchststand aus der
+  // Modellhistorie bzw. vs. eingezahltem Kapital) die deklarierte
+  // Verlusttragfähigkeit, wird ein Hinweis ins Betreuungsprotokoll
+  // geschrieben. Kein Versand, keine automatische Aktion.
+  const notices=[];
+  if(model&&(model.valueCents||0)>0){
+   const reference=Math.max(model.paidCents||0,model.valueCents,...(model.history||[]).map(h=>Number(h?.valueCents)||0));
+   const drawdownPct=reference>0?(reference-model.valueCents)/reference*100:0;
+   if(drawdownPct>=profile.lossTolerance)notices.push('Verlustschwelle erreicht: Der Modellwert liegt '+drawdownPct.toFixed(1).replace('.',',')+' % unter dem Höchststand ('+(reference/100).toFixed(2).replace('.',',')+' €) und erreicht damit die deklarierte Verlusttragfähigkeit von '+profile.lossTolerance+' %. Es wird nichts automatisch verkauft — bitte Anlageziel und Risikoprofil prüfen.');
+  }
   let explanationUsage=null,aiWarning='';
   if(rebalance&&env.openrouterKey){
    try{const ai=await managedExplanation(env,fetcher,db,owner,effectiveProfile,model,rec,universe);model.explanation=ai.explanation;explanationUsage=ai.usage;}
@@ -802,8 +876,9 @@ async function careCycle(env,db,fetcher,profileRow){
    for(const b of bindings)await db('rpc/enqueue_v12_task','POST',{p_owner:owner,p_kind:'pie-write',p_key:String(b.pie_id),p_payload:{pieId:b.pie_id},p_priority:70,p_reset:true});
   }
   await db('advisor_profiles?owner_id=eq.'+owner+'&strategy_key=eq.'+key,'PATCH',{next_due:new Date(Date.now()+(profile.intervalDays||1)*86400000).toISOString(),setup_error:null});
-  const reason=!modelRow?'Erste Modellstrategie erstellt und Zielgewichte festgelegt.':rebalance&&dueDeposit?'Strategieprüfung: Zielgewichte innerhalb deiner Grenzen angepasst und fällige Modell-Sparrate angelegt.':rebalance?'Strategieprüfung: Zielgewichte innerhalb deiner Grenzen angepasst.':dueDeposit?'Geplante Modell-Sparrate angelegt und Gewichte geprüft.':'Tägliche Bewertung: Modell innerhalb der Grenzen, keine Anpassung.';
+  const reason=!modelRow?'Erste Modellstrategie erstellt und Zielgewichte festgelegt.':dormant?'Modell ohne investiertes Kapital und ohne fällige Einzahlung: Bewertung ohne Anpassung.':rebalance&&dueDeposit?'Strategieprüfung: Zielgewichte innerhalb deiner Grenzen angepasst und fällige Modell-Sparrate angelegt.':rebalance?'Strategieprüfung: Zielgewichte innerhalb deiner Grenzen angepasst.':dueDeposit?'Geplante Modell-Sparrate angelegt und Gewichte geprüft.':'Tägliche Bewertung: Modell innerhalb der Grenzen, keine Anpassung.';
   const result={reason,transactions,costAssumption:model.costAssumption,coverage};
+  if(notices.length)result.notices=notices;
   if(explanationUsage)result.explanation={usage:explanationUsage};
   if(aiWarning)result.aiWarning=aiWarning;
   if(transactions.length)result.snapshot=modelSnapshot(model);
@@ -817,7 +892,7 @@ async function careCycle(env,db,fetcher,profileRow){
   // Einrichtungsfehler als setup_error am Profil sichtbar machen.
   // ALLOCATION_IMPOSSIBLE/UNIVERSE_EMPTY: strukturell unlösbare Allokation —
   // nicht endlos retryen, sondern wie Einrichtungsfehler erst in 24 h.
-  const setup=['BILLING_OWNER','BILLING_SETUP','BUDGET_LIMIT','AI_KEY_MISSING','MANDATE_CHANGED','MANDATE_INVALID','PLAN_MISSING','ALLOCATION_IMPOSSIBLE','UNIVERSE_EMPTY'].includes(d.code);
+  const setup=['BILLING_OWNER','BILLING_SETUP','BUDGET_LIMIT','AI_KEY_MISSING','MANDATE_CHANGED','MANDATE_INVALID','PLAN_MISSING','ALLOCATION_IMPOSSIBLE','UNIVERSE_EMPTY','CONFIRMATION_DUE'].includes(d.code);
   await db('advisor_profiles?owner_id=eq.'+owner+'&strategy_key=eq.'+key,'PATCH',{next_due:new Date(Date.now()+(setup?86400000:900000)).toISOString(),...(setup?{setup_error:d}:{})}).catch(()=>{});
   return {strategy:key,status:'failed',error:d.message};
  }
@@ -838,17 +913,29 @@ async function legacyScheduledRun(env,db,fetcher,profileRow){
  }
 }
 
+// W15 (S3): Timing-sicherer Secret-Vergleich — beide Werte werden
+// SHA-256-gehasht und die Byte-Arrays anschließend verglichen.
+async function timingSafeEqual(a,b){
+ const enc=new TextEncoder();
+ const [ha,hb]=await Promise.all([crypto.subtle.digest('SHA-256',enc.encode(String(a))),crypto.subtle.digest('SHA-256',enc.encode(String(b)))]);
+ const x=new Uint8Array(ha),y=new Uint8Array(hb);let diff=0;
+ for(let i=0;i<Math.max(x.length,y.length);i++)diff|=(x[i]??0)^(y[i]??0);
+ return diff===0;
+}
+
 // ----------------------------------------------------------------------------
 // Handler — Auth- und CORS-Muster wie kontur-services.ts (User-JWT über
 // /auth/v1/user; Cron über X-Kontur-Cron). Deploy mit verify_jwt=false, weil
 // die Function die Prüfung selbst vornimmt (Cron hat kein User-JWT).
 // ----------------------------------------------------------------------------
 function createHandler(input,fetcher=fetch){
- const env={...input,model:modelId(input.model)};
+ // K6 (E1/S1/S9): fail-closed mit Default-Origin, damit die App auch ohne
+ // gesetztes ALLOWED_ORIGINS-Secret funktioniert.
+ const env={...input,model:modelId(input.model),allowedOrigins:input.allowedOrigins?.length?input.allowedOrigins:['https://ggjzmbvht4-sketch.github.io']};
  const db=createDB(env,fetcher);
  return async req=>{
   const origin=req.headers.get('Origin')||'',allowed=env.allowedOrigins.includes(origin);
-  const cors={'Access-Control-Allow-Origin':allowed?origin:'','Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info,x-kontur-cron','Access-Control-Allow-Methods':'POST, OPTIONS',Vary:'Origin'};
+  const cors={'Access-Control-Allow-Origin':allowed?origin:'','Access-Control-Allow-Headers':'authorization,apikey,content-type,x-client-info,x-kontur-cron','Access-Control-Allow-Methods':'POST, OPTIONS',Vary:'Origin','Cache-Control':'no-store'};
   const json=(v,s=200)=>new Response(JSON.stringify(v),{status:s,headers:{...cors,'Content-Type':'application/json'}});
   if(req.method==='OPTIONS')return new Response(null,{status:allowed?204:403,headers:cors});
   if(req.method!=='POST')return json({error:'Nur POST'},405);
@@ -856,7 +943,7 @@ function createHandler(input,fetcher=fetch){
    const data=await boundedJSON(req,32000);
    // Cron-Ausführung ohne Nutzerkonto (dispatch-Muster aus kontur-services.ts)
    if(data.action==='dispatch'){
-    if(!env.cronSecret||env.cronSecret.length<32||req.headers.get('X-Kontur-Cron')!==env.cronSecret)return json({error:'Nicht autorisiert.'},401);
+    if(!env.cronSecret||env.cronSecret.length<32||!(await timingSafeEqual(req.headers.get('X-Kontur-Cron')||'',env.cronSecret)))return json({error:'Nicht autorisiert.'},401);
     // Fällige Mandate atomar sperren (014_advisor_jobs.sql claim_advisor_profile,
     // Muster claim_v12_task): die Sperre schiebt next_due um 15 Minuten, der
     // Betreuungszyklus setzt danach die echte nächste Fälligkeit.
@@ -871,7 +958,7 @@ function createHandler(input,fetcher=fetch){
    if(!allowed)return json({error:'ALLOWED_ORIGINS prüfen.'},403);
    const auth=req.headers.get('Authorization');
    if(!auth?.startsWith('Bearer '))return json({error:'Authentifizierung fehlt.'},401);
-   const u=await fetch(env.url+'/auth/v1/user',{headers:{apikey:env.serviceKey,Authorization:auth}});
+   let u;try{u=await fetch(env.url+'/auth/v1/user',{headers:{apikey:env.serviceKey,Authorization:auth},signal:AbortSignal.timeout(10000)});}catch{return json({error:'Authentifizierung fehlgeschlagen.'},401);}
    if(!u.ok)return json({error:'Authentifizierung fehlgeschlagen.'},401);
    const owner=(await u.json()).id;
    switch(data.action){
@@ -880,12 +967,12 @@ function createHandler(input,fetcher=fetch){
     case 'run':return json(await actionRun(env,db,fetcher,owner,data));
     case 'adopt':return json(await actionAdopt(env,db,owner,data));
     case 'market':return json(await actionMarket(env,db,fetcher,owner));
-    case 'search-market':return json(await actionSearchMarket(env,fetcher,data));
+    case 'search-market':return json(await actionSearchMarket(env,fetcher,owner,data));
     case 'budget-draft':return json(await actionBudgetDraft(env,db,fetcher,owner,data));
     case 'wealth-status':return json(await actionWealthStatus(env,db,owner,data));
     case 'wealth-history':return json(await actionWealthHistory(env,db,owner,data));
-    case 'activate-wealth':return json(await actionWealthSetEnabled(env,db,owner,data,true));
-    case 'pause-wealth':return json(await actionWealthSetEnabled(env,db,owner,data,false));
+    case 'activate-wealth':return json(await actionWealthSetEnabled(env,db,fetcher,owner,data,true));
+    case 'pause-wealth':return json(await actionWealthSetEnabled(env,db,fetcher,owner,data,false));
     default:throw new ServiceError('ACTION_UNKNOWN','Unbekannte Aktion.');
    }
   }catch(e){
