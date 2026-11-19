@@ -1,4 +1,8 @@
 // Shared, deterministic model rules. EUR amounts are cents; weights are basis points.
+// Frontend-Spiegel des Backends (Stand v18 + Runde 2): Es werden nur die Regeln,
+// Felder und Texte gespiegelt, die das Frontend selbst nutzt oder anzeigt
+// (Mandatsprüfung im Designer, strategische Gewichte, Auswahlgründe,
+// Kostenannahme). Die verbindliche Modellpflege läuft ausschließlich serverseitig.
 export const RULES_VERSION = 'kontur-wealth-1';
 const dayMs = 86400000;
 export function mandate(goal, enabled = true) {
@@ -19,7 +23,7 @@ export function mandate(goal, enabled = true) {
   if (Number.isSafeInteger(goal.monthlyIncomeCents) && goal.rate > goal.monthlyIncomeCents) throw Error('Die monatliche Sparrate übersteigt das deklarierte monatliche Einkommen. Bitte Sparrate oder Angaben anpassen.');
   for (const key of ['sectorLimit','currencyLimit']) if (!integer(goal[key],100,10000)) throw Error('Branchen- und Listingwährungsgrenzen prüfen.');
   if (!Array.isArray(goal.exclude) || goal.exclude.length > 200 || goal.exclude.some(x=>typeof x!=='string')) throw Error('Ausschlüsse prüfen.');
-  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),...(Number.isSafeInteger(goal.monthlyIncomeCents)?{monthlyIncomeCents:goal.monthlyIncomeCents}:{}),...(Number.isSafeInteger(goal.liquidAssetsCents)?{liquidAssetsCents:goal.liquidAssetsCents}:{}),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?7:30,driftBps:500};
+  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),...(Number.isSafeInteger(goal.monthlyIncomeCents)?{monthlyIncomeCents:goal.monthlyIncomeCents}:{}),...(Number.isSafeInteger(goal.liquidAssetsCents)?{liquidAssetsCents:goal.liquidAssetsCents}:{}),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?14:30,driftBps:500};
 }
 // W13 (R4): confirmedAt bleibt außen vor — eine Re-Bestätigung der
 // Geeignetheitsprüfung ändert das Mandat nicht. (1:1 wie der Server.)
@@ -52,8 +56,9 @@ export function allocateModel(profile, candidates, market) {
       if(!weightBps) continue;
       const score=profile.approach==='active'?activeScore(m.facts,m.indicators):null;
       const alternative=eligible.find(x=>x.id!==u.id);
-      const reason=score?'Bewertung '+score.value.toFixed(1)+'/100 (je 20 %): '+Object.entries(score.components).map(([k,v])=>({quality:'Qualität',valuation:'Bewertung',debt:'Verschuldung',growth:'Wachstum',momentum:'Momentum'})[k]+' '+v.toFixed(0)).join(', ')+'. Berichtsstand '+m.facts.asOf+'.':
-        'Strategischer '+({world:'Industrieländer',em:'Schwellenländer',bond:'Anleihen'})[group]+'-Baustein; Produktkosten laut gepflegtem Katalog '+(u.fee/100).toFixed(2)+' % p. a.'+(alternative?' Vergleich: '+alternative.name+' ('+(alternative.fee/100).toFixed(2)+' %).':' Kein weiterer bestätigter Baustein dieser Klasse mit ausreichenden Daten.');
+      const deNum=(v,min,max)=>v.toLocaleString('de-DE',{minimumFractionDigits:min,maximumFractionDigits:max});
+      const reason=score?'Bewertung '+deNum(score.value,1,1)+'/100 (je 20 %): '+Object.entries(score.components).map(([k,v])=>({quality:'Qualität',valuation:'Bewertung',debt:'Verschuldung',growth:'Wachstum',momentum:'Momentum'})[k]+' '+deNum(v,0,0)).join(', ')+'. Berichtsstand '+m.facts.asOf+'.':
+        'Strategischer '+({world:'Industrieländer',em:'Schwellenländer',bond:'Anleihen'})[group]+'-Baustein; Produktkosten laut gepflegtem Katalog '+deNum(u.fee/100,2,2)+' % p. a.'+(alternative?' Vergleich: '+alternative.name+' ('+deNum(alternative.fee/100,2,2)+' %).':' Kein weiterer bestätigter Baustein dieser Klasse mit ausreichenden Daten.');
       positions.push({id:u.id,weightBps,reason});
       sectors.set(sector,(sectors.get(sector)||0)+weightBps);currencies.set(u.currency,(currencies.get(u.currency)||0)+weightBps);left-=weightBps;
       if(!left) break;
@@ -126,7 +131,7 @@ export function evolveModel(previous,rec,universe,market,profile,date,{rebalance
     const needs=rec.positions.map(p=>({p,need:Math.max(0,Math.floor(capital*p.weightBps/10000)-(model.positions.find(x=>x.id===p.id)?.valueCents||0))})).sort((a,b)=>b.need-a.need||a.p.id.localeCompare(b.p.id));
     for(const {p,need} of needs){const cents=Math.min(available,need);if(!cents)continue;const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m);let pos=model.positions.find(x=>x.id===p.id);if(!pos){pos={id:p.id,units:0,valueCents:0,priceEUR,priceAsOf:m.indicators.asOf};model.positions.push(pos);}const units=cents/(priceEUR*100);pos.units+=units;pos.valueCents+=cents;pos.priceEUR=priceEUR;model.cashCents-=cents;available-=cents;transactions.push({type:'model-trade',id:p.id,units,priceEUR,priceAsOf:m.indicators.asOf,amountCents:cents});}
   }
-  model.recommendation=rec;model.universe=universe;model.asOf=date;model.costAssumption='Modell mit synthetischen Bruchstücken und bereinigten Kursreihen (Ausschüttungen reinvestiert); 0 € Ordergebühr. Spreads, individuelle Steuern und FX-Gebühren nicht simuliert. Nachgeholte Sparraten werden zum aktuellen verfügbaren Modellkurs angelegt.';
+  model.recommendation=rec;model.universe=universe;model.asOf=date;model.costAssumption='Angenommene Kosten je Modell-Trade: ETF 0,10 %, Aktie 0,25 %, zuzüglich 0,15 % FX bei Fremdwährungsgeschäften — bereits vom Modellwert abgezogen. Modell mit synthetischen Bruchstücken und bereinigten Kursreihen (Ausschüttungen reinvestiert). Spreads und individuelle Steuern nicht simuliert. Nachgeholte Sparraten werden zum aktuellen verfügbaren Modellkurs angelegt.';
   model.history=[...model.history.filter(x=>x.date!==date),{date,valueCents:model.valueCents,paidCents:model.paidCents}].slice(-3660);
   return {model,transactions};
 }
