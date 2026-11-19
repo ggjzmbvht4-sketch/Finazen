@@ -1,6 +1,6 @@
 import {managedUI} from './managed-ui.js';
 import {CLASS_COLORS,treemapHTML} from './wealth-visuals.js';
-import {money} from './engine.js';
+import {money,pct} from './engine.js';
 import {assetTotals,today,allocation,latestQuote} from './portfolio.js';
 import {holdingAt} from './trading.js';
 export function advisorUI(ctx){
@@ -10,14 +10,14 @@ export function advisorUI(ctx){
  const matching=(p,u)=>p.instruments.find(i=>i.currency===u.currency&&((u.isin&&i.isin===u.isin)||(i.symbol===u.symbol&&i.exchange.toUpperCase()===u.exchange.toUpperCase())));
  const call=body=>cloud.request('/functions/v1/investment-advisor',{method:'POST',auth:true,body});
  const key=id=>scope()+'|'+id;
- let legacyMode=!ctx.isActive;
+ let legacyMode=!ctx.isActive();
  const managed=managedUI({...ctx,holdings});
  async function load(id){
   const k=key(id);if(loading.has(k))return;
   loading.add(k);cache.set(k,{status:'loading'});render();
   try{const data=await call({action:'list',strategyId:id});cache.set(k,{status:'ready',data});}
   catch(e){cache.set(k,{status:'error',error:e.message});}
-  finally{loading.delete(k);if(key(id)===k)render();}
+  finally{loading.delete(k);if(key(id)===k&&ctx.isActive())render();}
  }
  function table(headers,rows){return '<div class="table-scroll"><table class="advisor-table"><thead><tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>';}
  const cell=x=>'<td>'+x+'</td>';
@@ -26,7 +26,7 @@ export function advisorUI(ctx){
   if(!pie)return '<div class="advisor-empty"><h3>Dein Strategie-Pie ist noch offen</h3><p>Prüfe eine Empfehlung und übernimm sie als Ziel-Pie. Danach stehen hier alle enthaltenen Wertpapiere.</p></div>';
   const total=assetTotals(p,pie.id),children=p.assets.filter(a=>a.parentId===pie.id),rows=children.map(a=>{
    const i=p.instruments.find(i=>i.id===a.instrumentId),v=assetTotals(p,a.id),q=latestQuote(p,a),qty=i?holdingAt(p,a,today()):null;
-   return '<tr data-highlight="'+(highlight===a.id||highlight===a.kind)+'">'+cell('<strong>'+esc(a.name)+'</strong><small>'+esc(i?[i.isin,i.symbol,i.exchange,i.currency].filter(Boolean).join(' · '):'Liquidität')+'</small>')+cell(i?esc(qty===null?'Bestand ungeklärt':new Intl.NumberFormat('de-DE',{maximumFractionDigits:8}).format(qty)):'–')+cell(i?(q?new Intl.NumberFormat('de-DE',{style:'currency',currency:i.currency}).format(q.priceMicros/1e6):'Kurs fehlt'):'–')+cell(v.known?'<span class="amount">'+money(v.value)+'</span>':'Bewertung fehlt')+cell(total.known&&total.value?(100*v.value/total.value).toFixed(1)+' %':'–')+cell((a.targetBps/100).toFixed(1)+' %')+cell(q?esc(q.asOf):'–')+cell(i?'<button class="text-btn" data-pf="buy" data-id="'+esc(a.id)+'">Kauf</button> <button class="text-btn" data-pf="sell" data-id="'+esc(a.id)+'">Verkauf</button> <button class="text-btn" data-pf="detail" data-id="'+esc(a.id)+'">Details</button>':'<button class="text-btn" data-feature="cash" data-id="'+esc(a.id)+'">Cash verwalten</button>')+'</tr>';
+   return '<tr data-highlight="'+(highlight===a.id||highlight===a.kind)+'">'+cell('<strong>'+esc(a.name)+'</strong><small>'+esc(i?[i.isin,i.symbol,i.exchange,i.currency].filter(Boolean).join(' · '):'Liquidität')+'</small>')+cell(i?esc(qty===null?'Bestand ungeklärt':new Intl.NumberFormat('de-DE',{maximumFractionDigits:8}).format(qty)):'–')+cell(i?(q?new Intl.NumberFormat('de-DE',{style:'currency',currency:i.currency}).format(q.priceMicros/1e6):'Kurs fehlt'):'–')+cell(v.known?'<span class="amount">'+money(v.value)+'</span>':'Bewertung fehlt')+cell(total.known&&total.value?pct(100*v.value/total.value):'–')+cell(pct(a.targetBps/100))+cell(q?esc(q.asOf):'–')+cell(i?'<button class="text-btn" data-pf="buy" data-id="'+esc(a.id)+'">Kauf</button> <button class="text-btn" data-pf="sell" data-id="'+esc(a.id)+'">Verkauf</button> <button class="text-btn" data-pf="detail" data-id="'+esc(a.id)+'">Details</button>':'<button class="text-btn" data-feature="cash" data-id="'+esc(a.id)+'">Cash verwalten</button>')+'</tr>';
   });
   return '<div class="card-title"><div><h2>'+esc(pie.name)+'</h2><p>Tatsächliche Bestände und vorgemerkte Ziele</p></div><strong class="amount">'+(total.known?money(total.value):money(total.value)+' · Teilwert')+'</strong></div>'+
   (rows.length?table(['Wertpapier','Stück','Stückkurs','Wert EUR','Ist','Ziel','Wertstand','Buchung'],rows):'<div class="notice">Dieser Pie ist leer. Übernimm eine fertige Empfehlung oder ergänze über Pie verwalten deine vorhandenen Wertpapiere.</div>')+
@@ -47,9 +47,9 @@ export function advisorUI(ctx){
   const rows=rec.positions.map(pos=>{
    const u=universe.find(u=>u.id===pos.id);if(!u)return '';
    const i=matching(p,u),a=i&&p.assets.find(a=>a.parentId===pie?.id&&a.instrumentId===i.id),v=a?assetTotals(p,a.id):null;
-   return '<tr>'+cell('<strong>'+esc(u.name)+'</strong><small>'+esc([u.isin,u.symbol,u.exchange,u.currency].filter(Boolean).join(' · '))+'</small>')+cell(u.kind==='etf'?'ETF':'Aktie')+cell((pos.weightBps/100).toFixed(1)+' %')+cell(root&&!root.known?'Bewertung offen':'<span class="amount">'+money(Math.round(base*pos.weightBps/10000))+'</span>')+cell(v?.known?money(v.value):a?'Wert fehlt':'0,00 €')+cell(esc(pos.reason))+'</tr>';
+   return '<tr>'+cell('<strong>'+esc(u.name)+'</strong><small>'+esc([u.isin,u.symbol,u.exchange,u.currency].filter(Boolean).join(' · '))+'</small>')+cell(u.kind==='etf'?'ETF':'Aktie')+cell(pct(pos.weightBps/100))+cell(root&&!root.known?'Bewertung offen':'<span class="amount">'+money(Math.round(base*pos.weightBps/10000))+'</span>')+cell(v?.known?money(v.value):a?'Wert fehlt':'0,00 €')+cell(esc(pos.reason))+'</tr>';
   });
-  rows.push('<tr>'+cell('Liquidität')+cell('Cash')+cell(rec.cashWeightBps/100+' %')+cell(money(Math.round(base*rec.cashWeightBps/10000)))+cell('')+cell('Cashanteil der Strategie')+'</tr>');
+  rows.push('<tr>'+cell('Liquidität')+cell('Cash')+cell(pct(rec.cashWeightBps/100))+cell(money(Math.round(base*rec.cashWeightBps/10000)))+cell('')+cell('Cashanteil der Strategie')+'</tr>');
   const c=run.result.coverage,d=run.result.decision;
   return '<div class="recommendation-header"><span class="status-pill">'+(run.adopted_at?'Übernommen':'Zur Prüfung')+'</span><span>'+esc(run.result.asOf||run.finished_at?.slice(0,10)||'')+'</span></div><h3>'+esc(rec.summary)+'</h3><p>'+esc(rec.portfolioAssessment)+'</p>'+
   '<section class="decision-banner"><strong>'+esc(({hold:'Bestand und Strategie beibehalten',deposit:'Nächste Sparrate anders verteilen',rebalance:'Zielanpassung vorgeschlagen'})[rec.action]||'Zusammensetzung prüfen')+'</strong><p>'+esc(rec.changeReason||'Prüfe die Begründung und den Vergleich mit deinem Bestand.')+'</p></section>'+table(['Konkretes Wertpapier','Art','Empfohlen','Zielbetrag EUR','Bestand EUR','Auswahlgrund'],rows)+
@@ -60,7 +60,7 @@ export function advisorUI(ctx){
  }
  function legacyPage(){
   const s=state(),goals=s.strategies||[];let g=goals.find(g=>g.id===selected)||goals[0];selected=g?.id||'';
-  const head='<div class="page-heading"><div><p class="eyebrow">VERMÖGEN BETREUEN</p><h1>Deine Anlagestrategien</h1><p>Ziel festlegen. Zusammensetzung prüfen. Bestand und nächste Einzahlung verfolgen.</p><p class="form-help">Modellwerkzeug — keine Anlageberatung.</p></div><button class="btn primary" data-design-start="">Anlageziel anlegen</button></div>';
+  const head='<div class="page-heading"><div><p class="eyebrow">VERMÖGEN BETREUEN</p><h1>Deine Anlagestrategien</h1><p>Ziel festlegen. Zusammensetzung prüfen. Bestand und nächste Einzahlung verfolgen.</p><p class="form-help">Modellwerkzeug — keine Anlageberatung. <a href="./risikohinweise.html" target="_blank" rel="noopener noreferrer">Risikohinweise</a></p></div><button class="btn primary" data-design-start="">Anlageziel anlegen</button></div>';
   if(!g)return head+'<section class="advisor-empty card"><h2>Welches Vermögen möchtest du aufbauen?</h2><p>Lege ein Anlageziel mit Zeitraum, Sparrate und Risiko fest. Der Advisor ermittelt konkrete Aktien und ETFs und zeigt die vollständige Zusammensetzung vor der Übernahme.</p><button class="btn primary" data-design-start="">Erste Strategie anlegen</button></section>';
   const item=cache.get(key(g.id));
   if(!item&&cloud.session)void load(g.id);
@@ -78,7 +78,7 @@ export function advisorUI(ctx){
   '<details class="card care-panel"><summary>Prüfverlauf · '+runs.length+' Läufe</summary>'+runs.map(r=>'<div class="run-history"><strong>'+esc(r.created_at?.slice(0,16).replace('T',' '))+'</strong><span>'+esc(({completed:'Abgeschlossen',failed:'Fehlgeschlagen',running:'Läuft'})[r.status]||r.status)+'</span>'+(r.error?'<p class="negative">'+esc(r.error)+'</p>':'')+(r.result?button('history','Zusammensetzung ansehen',r.id):'')+'</div>').join('')+'</details>'+
   '<details class="card care-panel"><summary>Pie zuordnen und Sparrate planen</summary><form id="advisor-link" data-id="'+esc(g.id)+'"><label>Bestehender Pie<select name="pieId"><option value="">Keine Zuordnung</option>'+s.portfolio.assets.filter(a=>a.kind==='pie').map(a=>'<option value="'+esc(a.id)+'" '+(g.pieId===a.id?'selected':'')+'>'+esc(a.name)+'</option>').join('')+'</select></label><button class="btn">Zuordnen</button></form><button class="btn" data-plan="savings" data-id="'+esc(g.id)+'">Sparrate in Finanzplan übernehmen</button></details></div></div>';
  }
- function page(){return legacyMode?'<button class="btn" data-advisor="managed-home">Zur automatischen Betreuung</button>'+(ctx.isActive?'<p>Frühere Empfehlungen · Archiv, keine laufende Betreuung.</p>'+legacyPage().replace(/<form\b[\s\S]*?<\/form>/g,''):legacyPage()):managed.page();}
+ function page(){return legacyMode?'<button class="btn" data-advisor="managed-home">Zur automatischen Betreuung</button>'+(ctx.isActive()?'<p>Frühere Empfehlungen · Archiv, keine laufende Betreuung.</p>'+legacyPage().replace(/<form\b[\s\S]*?<\/form>/g,''):legacyPage()):managed.page();}
  async function click(t){
   if(await managed.click(t))return;
   if(t.dataset.advisor==='legacy'){legacyMode=true;render();return;}
@@ -96,14 +96,14 @@ export function advisorUI(ctx){
   }
   if(t.dataset.advisor==='funding'){
    const g=state().strategies.find(g=>g.id===id),p=state().portfolio,result=allocation(p,g.pieId,g.rate);
-   ctx.modal('Nächste Sparrate · '+g.name,table(['Position','Jetzt einzahlen','Gewicht danach'],result.map(x=>'<tr>'+cell(esc(x.name))+cell(money(x.add))+cell(x.newWeight.toFixed(1)+' %')+'</tr>')),true);
+   ctx.modal('Nächste Sparrate · '+g.name,table(['Position','Jetzt einzahlen','Gewicht danach'],result.map(x=>'<tr>'+cell(esc(x.name))+cell(money(x.add))+cell(pct(x.newWeight))+'</tr>')),true);
   }
  }
  async function submit(f,operation){
   if(await managed.submit(f))return;
-  if(legacyMode&&ctx.isActive)throw Error('Frühere Empfehlungen sind archiviert. Bitte die automatische Betreuung einrichten.');
+  if(legacyMode&&ctx.isActive())throw Error('Frühere Empfehlungen sind archiviert. Bitte die automatische Betreuung einrichten.');
   const id=f.dataset.goal||f.dataset.id,k=key(id);if(pending.has(k))return;
-  if(f.id==='advisor-link'){const s=structuredClone(state()),g=s.strategies.find(g=>g.id===id);const pieId=new FormData(f).get('pieId');if(pieId&&s.strategies.some(x=>x.id!==id&&x.pieId===pieId))throw Error('Dieser Pie gehört bereits zu einer anderen Strategie.');g.pieId=pieId;commit(s);return;}
+  if(f.id==='advisor-link'){const s=structuredClone(state()),g=s.strategies.find(g=>g.id===id);const pieId=new FormData(f).get('pieId');if(pieId&&s.strategies.some(x=>x.id!==id&&x.pieId===pieId))throw Error('Dieser Pie gehört bereits zu einer anderen Strategie.');g.pieId=pieId;commit(s);ctx.toast(pieId?'Pie zugeordnet.':'Zuordnung entfernt.');return;}
   const d=new FormData(f);pending.add(k);
   try{
    if(f.id==='advisor-run'){const old=state().strategies.find(g=>g.id===id);if(old&&!old.selection){const next=structuredClone(state());next.strategies.find(g=>g.id===id).selection='free';commit(next);}}
