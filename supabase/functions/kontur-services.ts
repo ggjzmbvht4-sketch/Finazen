@@ -23,12 +23,16 @@ function strategicWeights(p) {
   const stock=Math.min(equity,10000-cash),em=Math.round(stock*.15);
   return {world:stock-em,em,bond:10000-cash-stock,cash};
 }
+// Vertrag (B12): indicators.momentum63Pct = Momentum über 63 Handelstage, wie es yahooChart
+// in market.js liefert. Die bisherige Übergabestelle (investment-advisor, advisor-core)
+// schreibt noch momentum20Pct; beide Felder werden übergangsweise akzeptiert.
 function activeScore(facts, indicators) {
   const f=facts||{},keys=['roe','pe','debtToEquity','revenueGrowth'];
-  if(keys.some(k=>!Number.isFinite(f[k])) || !(f.pe>0) || f.debtToEquity<0 || !Number.isFinite(indicators?.momentum20Pct)) return null;
+  const momentumPct=indicators?.momentum63Pct??indicators?.momentum20Pct;
+  if(keys.some(k=>!Number.isFinite(f[k])) || !(f.pe>0) || f.debtToEquity<0 || !Number.isFinite(momentumPct)) return null;
   const relative=f.sectorScore;if(relative?.version==='sector-percentiles-v12.1'&&Object.keys(relative.components||{}).length===5&&['quality','valuation','debt','growth','momentum'].every(k=>Number.isFinite(relative.components?.[k])&&relative.components[k]>=0&&relative.components[k]<=100))return {version:relative.version,value:Object.values(relative.components).reduce((a,b)=>a+b,0)/5,components:relative.components};
   const clamp=x=>Math.max(0,Math.min(100,x));
-  const components={quality:clamp(f.roe*250),valuation:clamp(100-f.pe*2),debt:clamp(100-f.debtToEquity*50),growth:clamp(50+f.revenueGrowth*200),momentum:clamp(50+indicators.momentum20Pct*2)};
+  const components={quality:clamp(f.roe*250),valuation:clamp(100-f.pe*2),debt:clamp(100-f.debtToEquity*50),growth:clamp(50+f.revenueGrowth*200),momentum:clamp(50+momentumPct*2)};
   return {version:RULES_VERSION,value:Object.values(components).reduce((n,x)=>n+x,0)/5,components};
 }
 function allocateModel(profile, candidates, market) {
@@ -136,7 +140,7 @@ function updateBenchmark(previous,instruments,market,weights,start,deposit,date)
   if(!pos){pos={id:u.id,units:0,priceEUR:price,priceAsOf:m.indicators.asOf};b.positions.push(pos);}pos.units+=amount/(price*100);b.cashCents-=amount;
  }
  b.valueCents=b.cashCents;
- for(const pos of b.positions){const m=market.find(m=>m.id===pos.id);if(!m||m.error||m.indicators?.stale)throw Error('Benchmark-Bewertung unvollständig.');b.valueCents+=Math.round(pos.units*marketPrice(m)*100);}
+ for(const pos of b.positions){const m=market.find(x=>x.id===pos.id);if(!m||m.error||m.indicators?.stale)throw Error('Benchmark-Bewertung unvollständig.');b.valueCents+=Math.round(pos.units*marketPrice(m)*100);}
  b.instruments=instruments;b.weights=weights;b.asOf=date;b.label='Unverändertes Referenzportfolio · gleiche Modell-Einzahlungen';
  b.history=[...b.history.filter(x=>x.date!==date),{date,valueCents:b.valueCents,paidCents:b.paidCents}].slice(-3660);return b;
 }
@@ -168,7 +172,7 @@ async function boundedJSON(response,maxBytes=4*1024*1024){
 function diagnostics(e){return {code:e.code||'PROCESSING_ERROR',message:safeMessage(e.message),retryable:e.retryable!==false,status:e.status||null,requestId:e.requestId||null,retryAfter:e.retryAfter||0};}
 function createDB(env,fetcher=fetch){return async(path,method='GET',body)=>{
  const response=await fetcher(env.url+'/rest/v1/'+path,{method,headers:{apikey:env.serviceKey,Authorization:'Bearer '+env.serviceKey,'Content-Type':'application/json',Prefer:'return=representation,resolution=merge-duplicates'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
- const data=await boundedJSON(response,8*1024*1024);if(!response.ok)throw new ServiceError(String(data?.message||'').startsWith('BUDGET_LIMIT')?'BUDGET_LIMIT':'DATABASE_ERROR',safeMessage(data?.message||'Datenbank nicht erreichbar. Migrationen prüfen.'),{retryable:response.status>=500,status:response.status});return data;
+ const data=await boundedJSON(response,8*1024*1024);if(!response.ok){const message=String(data?.message||'');const pieLock=/^(PIE_BUSY|PIE_STALE)/.exec(message);if(pieLock)throw new ServiceError(pieLock[1],safeMessage(message),{retryable:true,retryAfter:120,status:response.status});throw new ServiceError(message.startsWith('BUDGET_LIMIT')?'BUDGET_LIMIT':'DATABASE_ERROR',safeMessage(message||'Datenbank nicht erreichbar. Migrationen prüfen.'),{retryable:response.status>=500,status:response.status});}return data;
 };}
 
 return {ServiceError,safeMessage,boundedJSON,diagnostics,createDB};
@@ -265,6 +269,7 @@ const __module10=(()=>{
 function classifyBrokerStatus(status, detail = '') {
   const text = String(detail || '').toLowerCase();
   if (status === 401) return 'invalid_credentials';
+  if (status === 400) return 'bad_request';
   if (status === 429 || status === 408) return 'rate_limited';
   if (status >= 500) return 'temporary';
   if (status === 403) {
@@ -284,6 +289,7 @@ function brokerScopeMessage(area, state) {
   if (state === 'invalid_credentials') return 'Trading212-Schlüssel oder Secret ist ungültig. Es wird nur die Live-API verwendet.';
   if (state === 'rate_limited') return label + ' ist kurz begrenzt. Der letzte Stand bleibt erhalten.';
   if (state === 'forbidden') return label + ' ist gesperrt. Eine IP-Beschränkung des Live-Schlüssels entfernen.';
+  if (state === 'bad_request') return label + ': Trading212 hat die Anfrage als ungültig abgelehnt (HTTP 400). Eingaben prüfen; es gibt keinen automatischen Neuversuch.';
   if (state === 'unchecked') return 'pies:write ist noch nicht geprüft. Ein zerstörungsfreier Test ist nicht verfügbar.';
   return label + ' derzeit nicht lesbar.';
 }
@@ -380,7 +386,6 @@ function parseWikifolioPortfolio(payload) {
     error.code = 'MIRROR_CASH';
     throw error;
   }
-  const scale = originals.some(row => row.percentage > 1.5) || cashWeight > 1.5 ? 100 : 1;
   const aggregated = new Map();
   for (const row of originals) {
     const current = aggregated.get(row.isin) || { isin: row.isin, name: row.name, weight: 0 };
@@ -388,6 +393,13 @@ function parseWikifolioPortfolio(payload) {
     aggregated.set(row.isin, current);
   }
   const total = [...aggregated.values()].reduce((sum, row) => sum + row.weight, 0) + cashWeight;
+  // W9/B6: Die Skala an der Gesamtsumme festmachen (≈100 Prozent oder ≈1 Anteile), nicht an Einzelwerten.
+  const scale = Math.abs(total - 100) <= 2 ? 100 : Math.abs(total - 1) <= 0.02 ? 1 : null;
+  if (scale === null) {
+    const error = new Error('Die Gewichtssumme ist weder 100 Prozent noch 1,0. Es wird nichts geschrieben.');
+    error.code = 'MIRROR_WEIGHTS';
+    throw error;
+  }
   const expected = scale === 100 ? 100 : 1;
   if (Math.abs(total - expected) > expected * 0.02) {
     const error = new Error('Die Gruppen ergeben keine vollständige Gewichtung. Es wird nichts geschrieben.');
@@ -460,11 +472,11 @@ function brokerClient(env,db,fetcher,owner){return async(path,method='GET',body)
  if(!/^\/equity\/(account\/summary|positions|pies(?:\/\d+)?|metadata\/instruments)$/.test(path)||!['GET','POST'].includes(method)||method==='POST'&&!/^\/equity\/pies\/\d+$/.test(path))throw new ServiceError('BROKER_OPERATION','Diese Broker-Operation ist nicht freigegeben.');
  if(method==='POST'&&(Object.keys(body||{}).some(k=>k!=='instrumentShares')||!body?.instrumentShares||Object.values(body.instrumentShares).some(v=>typeof v!=='number')))throw new ServiceError('BROKER_OPERATION','Automatische Pflege schreibt nur Zielgewichte der Titel. Es werden keine Orders ausgelöst.');
  const seconds=path==='/equity/pies'?30:path.includes('metadata')?50:path==='/equity/positions'?2:5;
- try{await db('rpc/claim_v12_broker_rate','POST',{p_owner:owner,p_endpoint:method+path,p_seconds:seconds});}
+ try{await db('rpc/claim_v12_broker_rate','POST',{p_owner:owner,p_endpoint:method+path.replace(/\/equity\/pies\/\d+$/,'/equity/pies/{id}'),p_seconds:seconds});}
  catch(e){if(String(e.message||'').includes('BROKER_RATE_LIMIT'))throw new ServiceError('BROKER_RATE_LIMIT','Trading212-Abrufgrenze. Der letzte Stand bleibt erhalten.',{retryable:true,retryAfter:seconds,status:429});throw e;}
  let r;try{r=await fetcher('https://live.trading212.com/api/v0'+path,{method,headers:{Authorization:'Basic '+btoa(env.brokerKey+':'+env.brokerSecret),'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)});}
  catch{throw new ServiceError('BROKER_UPSTREAM','Trading212 ist vorübergehend nicht erreichbar. Der letzte Stand bleibt erhalten.',{retryable:true,retryAfter:300});}
- if(!r.ok){let detail='';try{detail=await r.text();}catch{}const state=classifyBrokerStatus(r.status,detail);const code=state==='missing_scope'?'BROKER_MISSING_SCOPE':state==='invalid_credentials'?'BROKER_INVALID_CREDENTIALS':state==='rate_limited'?'BROKER_RATE_LIMIT':state==='temporary'?'BROKER_UPSTREAM':'BROKER_FORBIDDEN';throw new ServiceError(code,brokerScopeMessage(path.includes('account')?'account':path.includes('positions')?'positions':path.includes('metadata')?'instruments':'pies',state==='temporary'?'rate_limited':state)+(detail.trim()?' '+safeMessage(detail).slice(0,180):''),{retryable:state==='rate_limited'||state==='temporary',retryAfter:state==='temporary'?300:60,status:r.status});}
+ if(!r.ok){let detail='';try{detail=await r.text();}catch{}const state=classifyBrokerStatus(r.status,detail);const code=state==='missing_scope'?'BROKER_MISSING_SCOPE':state==='invalid_credentials'?'BROKER_INVALID_CREDENTIALS':state==='rate_limited'?'BROKER_RATE_LIMIT':state==='temporary'?'BROKER_UPSTREAM':state==='bad_request'?'BROKER_BAD_REQUEST':'BROKER_FORBIDDEN';throw new ServiceError(code,brokerScopeMessage(path.includes('account')?'account':path.includes('positions')?'positions':path.includes('metadata')?'instruments':'pies',state==='temporary'?'rate_limited':state)+(detail.trim()?' '+safeMessage(detail).slice(0,180):''),{retryable:state==='rate_limited'||state==='temporary',retryAfter:state==='temporary'?300:60,status:r.status});}
  if(r.status===204)return {};return boundedJSON(r,12*1024*1024);
  };}
 
@@ -546,7 +558,14 @@ function marketService(env,db,fetcher,owner,broker){
   let r;try{r=await fetcher('https://api.financialdatasets.ai'+path+'?'+new URLSearchParams(query),{method:body?'POST':'GET',headers:{'X-API-KEY':env.datasetsKey,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(25000)});const j=await boundedJSON(r,12*1024*1024);await settleCost(ticket,{usd:.02,uncertain:!r.ok});if(!r.ok)throw new ServiceError('DATA_'+r.status,'Financial Datasets HTTP '+r.status+'. Tarif und Schlüssel prüfen.',{retryable:r.status===429||r.status>=500,status:r.status});return j;}catch(e){await settleCost(ticket,{uncertain:true});throw e;}
  }
  async function index(){
-  const pending=await db(own('v12_tasks','kind=eq.market-screen&status=in.(queued,running)&limit=1'));if(pending.length)return {result:{waitingForPreviousCycle:true},delay:86400};
+  // B15: Ein dauerhaft hängender Screen-Block darf den Marktzyklus nicht ewig blockieren.
+  // Blöcke, deren Fälligkeit seit über 6 Stunden überzogen ist, werden zurückgesetzt.
+  const pending=await db(own('v12_tasks','kind=eq.market-screen&status=in.(queued,running)&select=id,next_due&limit=100'));
+  if(pending.length){
+   const stale=pending.filter(t=>Number.isFinite(Date.parse(t.next_due||''))&&Date.now()-Date.parse(t.next_due)>6*3600000);
+   if(stale.length!==pending.length)return {result:{waitingForPreviousCycle:true},delay:86400};
+   for(const t of stale)await db(own('v12_tasks','id=eq.'+t.id),'PATCH',{status:'failed',last_error:{code:'SCREEN_STALE',message:'Analyseblock nach 6 Stunden ohne Fortschritt zurückgesetzt; ein neuer Marktzyklus startet.'}});
+  }
   const brokerRows=await broker('/equity/metadata/instruments');if(!Array.isArray(brokerRows))throw new ServiceError('BROKER_DATA_INVALID','Trading212 liefert keinen Instrumentenkatalog.');
   const catalog=brokerRows.map(row=>({ticker:row.ticker,isin:row.isin||null,currencyCode:row.currencyCode||null,type:row.type||null,name:row.name||row.shortName||null}));
   await db('wealth_cache?on_conflict=owner_id,cache_key','POST',{owner_id:owner,cache_key:'trading212-instruments',payload:catalog,expires_at:new Date(Date.now()+86400000).toISOString(),retrieved_at:new Date().toISOString()});
@@ -563,16 +582,20 @@ function marketService(env,db,fetcher,owner,broker){
   const prefs=(await db(own('v12_preferences','select=market_data_mode')))[0];
   const mode=prefs?.market_data_mode==='free_then_paid'?'free_then_paid':'free_only';
   const rows=await db(own('v12_instruments','isin=in.('+isins.join(',')+')&active=eq.true'));
-  let checked=0,usable=0,kept=0;
+  let checked=0,usable=0,kept=0,failed=0;
+  const fxCache=new Map();
   for(const row of rows){
     checked++;
+    // K2/B1: Fehler eines einzelnen Instruments (zu große Quellantwort, Zeitüberschreitung)
+    // brechen den 25er-Block nicht ab; der Titel wird als unvollständig verbucht.
+    try{
     const previous=row.facts&&typeof row.facts==='object'?row.facts:null;
     let yahooFailed=false,price=null,momentum=previous?.momentum??null,momentumSource=previous?.momentumSource||null;
     try{const chart=await yahooChart(row.provider_ticker,fetcher);price=chart.last;momentum=chart.momentum;momentumSource='https://finance.yahoo.com/quote/'+encodeURIComponent(row.provider_ticker)+'/history/';}
     catch(e){yahooFailed=true;if(e.code!=='YAHOO_UNAVAILABLE'&&e.code!=='BROKER_UPSTREAM'&&!e.retryable)throw e;}
     let fx=previous?.fx??null,fxSource=previous?.fxSource||null;
     const listing=Array.isArray(row.listings)?row.listings.find(item=>item.currency&&item.currency!=='EUR')||row.listings[0]:null;
-    try{if(listing?.currency&&listing.currency!=='EUR'){const rate=await eurRate(listing.currency,fetcher);fx=rate.rate;fxSource=rate.source;}else {fx=1;fxSource='EUR';}}catch{fx=previous?.fx??fx;}
+    try{if(listing?.currency&&listing.currency!=='EUR'){let rate=fxCache.get(listing.currency);if(!rate){rate=await eurRate(listing.currency,fetcher);fxCache.set(listing.currency,rate);}fx=rate.rate;fxSource=rate.source;}else {fx=1;fxSource='EUR';}}catch{fx=previous?.fx??fx;}
     let facts=null;
     if(row.provider_market==='US'){try{facts=await secFacts(row.provider_ticker,fetcher);}catch(e){if(e.code==='SEC_UNAVAILABLE'){kept++;continue;}throw e;}}
     let free=null;
@@ -610,6 +633,20 @@ function marketService(env,db,fetcher,owner,broker){
     const complete=['return_on_equity','pe_ratio','debt_to_equity','revenue_growth','momentum'].every(key=>typeof merged[key]==='number'&&Number.isFinite(merged[key]))&&/^\d{4}-\d{2}-\d{2}/.test(merged.asOf||'');
     await db(own('v12_instruments','isin=eq.'+row.isin),'PATCH',{facts:merged,sector:merged.sector,status:'incomplete',score:null,reason:complete?'Bewertung erfordert ausreichend Branchenvergleiche.':'Daten unvollständig. Keine erfundene Rangposition.',as_of:/^\d{4}-\d{2}-\d{2}/.test(merged.asOf||'')?String(merged.asOf).slice(0,10):null,updated_at:new Date().toISOString()});
     if(complete)usable++;
+    }catch(e){
+      if(e&&(e.code==='RESPONSE_TOO_LARGE'||e.name==='TimeoutError')){
+        // Größenfehler sind nicht wiederholbar; Zeitüberschreitungen werden nicht endlos erneut versucht.
+        failed++;kept++;
+        await db(own('v12_instruments','isin=eq.'+row.isin),'PATCH',{status:'incomplete',score:null,reason:e.code==='RESPONSE_TOO_LARGE'?'Antwort der Datenquelle überschreitet die erlaubte Größe. Der Titel bleibt unvollständig und wird nicht erneut abgefragt.':'Zeitüberschreitung bei der Datenquelle. Der Titel bleibt in diesem Durchlauf unvollständig.',updated_at:new Date().toISOString()});
+        // B15: Nach 5 harten Einzelfehlern den Rest des Blocks abschließen statt zu blockieren.
+        if(failed>=5){
+          for(const rest of rows.slice(rows.indexOf(row)+1)){await db(own('v12_instruments','isin=eq.'+rest.isin),'PATCH',{status:'incomplete',score:null,reason:'Analyseblock nach wiederholten Quellfehlern abgeschlossen; dieser Titel wird im nächsten Zyklus erneut versucht.',updated_at:new Date().toISOString()});kept++;}
+          break;
+        }
+        continue;
+      }
+      throw e;
+    }
   }
   await db('rpc/rank_v12_market','POST',{p_owner:owner});
   const held=new Set((await db(own('v12_broker_state')))[0]?.snapshot?.positions?.map(position=>position.isin).filter(isin=>/^[A-Z]{2}[A-Z0-9]{10}$/.test(isin))||[]);
@@ -619,7 +656,7 @@ function marketService(env,db,fetcher,owner,broker){
   return {result:{checked,usable,kept,mode}};
 }
 function numberOr(...values){for(const value of values)if(typeof value==='number'&&Number.isFinite(value))return value;return null;}
-function annualSeries(facts,names,unit){for(const name of names){const rows=facts?.facts?.['us-gaap']?.[name]?.units?.[unit]||[];const byEnd=new Map();for(const row of rows){if(row.fp!=='FY'||(row.form!=='10-K'&&row.form!=='10-K/A')||!Number.isFinite(row.val)||!/^\d{4}-\d{2}-\d{2}$/.test(row.end||''))continue;const prev=byEnd.get(row.end);if(!prev||String(row.filed||'')>=String(prev.filed||''))byEnd.set(row.end,row);}const series=[...byEnd.values()].sort((a,b)=>a.end.localeCompare(b.end));if(series.length)return series;}return [];}
+function annualSeries(facts,names,unit){for(const name of names){const rows=facts?.facts?.['us-gaap']?.[name]?.units?.[unit]||[];const byEnd=new Map();for(const row of rows){if(row.fp!=='FY'||(row.form!=='10-K'&&row.form!=='10-K/A')||!Number.isFinite(row.val)||!/^\d{4}-\d{2}-\d{2}$/.test(row.end||''))continue;const prev=byEnd.get(row.end);if(!prev||String(row.filed||'')>=String(row.filed||''))byEnd.set(row.end,row);}const series=[...byEnd.values()].sort((a,b)=>a.end.localeCompare(b.end));if(series.length)return series;}return [];}
 function extractXbrl(facts){const income=annualSeries(facts,['NetIncomeLoss','ProfitLoss'],'USD'),equity=annualSeries(facts,['StockholdersEquity'],'USD'),revenue=annualSeries(facts,['RevenueFromContractWithCustomerExcludingAssessedTax','Revenues','SalesRevenueNet'],'USD'),debt=annualSeries(facts,['LongTermDebtNoncurrent','LongTermDebt'],'USD'),eps=annualSeries(facts,['EarningsPerShareDiluted'],'USD/shares');const end=equity.at(-1)?.end||income.at(-1)?.end||null;if(!end||Date.now()-Date.parse(end)>550*86400000)return null;const incomeRow=income.findLast?income.findLast(row=>row.end<=end):income.filter(row=>row.end<=end).at(-1);const equityRow=equity.find(row=>row.end===end)||equity.at(-1);const revenueRows=revenue.filter(row=>row.end<=end);const debtRow=debt.filter(row=>row.end<=end).at(-1);const epsRow=eps.filter(row=>row.end<=end).at(-1);if(!incomeRow||!equityRow||!(equityRow.val>0)||revenueRows.length<2)return null;return {return_on_equity:incomeRow.val/equityRow.val,debt_to_equity:debtRow?debtRow.val/equityRow.val:null,revenue_growth:revenueRows.at(-1).val/revenueRows.at(-2).val-1,eps:epsRow?.val??null,asOf:end,sector:null,source:'https://data.sec.gov/api/xbrl/companyfacts'};}
 async function yahooChart(symbol,fetcher){const response=await fetcher('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbol)+'?range=1y&interval=1d',{headers:{'User-Agent':'Kontur/12.1'},signal:AbortSignal.timeout(12000)});if(!response.ok)throw new ServiceError('YAHOO_UNAVAILABLE','Yahoo-Kursreihe nicht erreichbar.',{retryable:true,status:response.status});const body=await boundedJSON(response,700000),chart=body?.chart?.result?.[0],prices=chart?.indicators?.adjclose?.[0]?.adjclose||chart?.indicators?.quote?.[0]?.close;const valid=(prices||[]).map((price,index)=>({price,time:chart.timestamp?.[index]})).filter(point=>Number.isFinite(point.price)&&point.price>0);if(valid.length<63||Date.now()-valid.at(-1).time*1000>7*86400000)throw new ServiceError('YAHOO_UNAVAILABLE','Yahoo-Kursreihe ist nicht belastbar.');const base=valid.at(-63).price;return {last:valid.at(-1).price,momentum:valid.at(-1).price/base-1};}
 async function eurRate(currency,fetcher){const response=await fetcher('https://api.frankfurter.app/latest?from='+encodeURIComponent(currency)+'&to=EUR',{signal:AbortSignal.timeout(12000)});if(!response.ok)throw new ServiceError('FX_UNAVAILABLE','Wechselkurs nicht erreichbar.',{retryable:true});const body=await boundedJSON(response,200000),rate=Number(body?.rates?.EUR);if(!(rate>0))throw new ServiceError('FX_UNAVAILABLE','Wechselkurs fehlt.');return {rate,source:'https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html'};}
@@ -684,10 +721,10 @@ async function sourceProbe(owner,symbol){
 async function saveCapability(owner,database,area,probe){if(!probe?.state)return;const rows=await database(own('v12_preferences',owner));const current=rows[0]?.broker_capabilities||{};const next={...current,[area]:{state:probe.state,scope:probe.scope,message:probe.message,checkedAt:new Date().toISOString()}};if(!next.piesWrite)next.piesWrite={state:'unchecked',scope:'pies:write',message:'pies:write ist noch nicht geprüft. Ein zerstörungsfreier Test ist nicht verfügbar.',checkedAt:null};await database('v12_preferences?on_conflict=owner_id','POST',{owner_id:owner,broker_capabilities:next});}
 async function markWriteChecked(owner){const rows=await db(own('v12_preferences',owner));const current=rows[0]?.broker_capabilities||{};current.piesWrite={state:'available',scope:'pies:write',message:'Schreibrecht durch zurückgelesene Zielgewichte bestätigt. Es wurde keine Order ausgelöst.',checkedAt:new Date().toISOString()};await db('v12_preferences?on_conflict=owner_id','POST',{owner_id:owner,broker_capabilities:current});}
 async function mergeSnapshot(owner,database,patch){const previous=(await database(own('v12_broker_state',owner)))[0]?.snapshot||{};const snapshot={...previous,...patch,asOf:new Date().toISOString()};await database('v12_broker_state?on_conflict=owner_id','POST',{owner_id:owner,snapshot,updated_at:snapshot.asOf});return snapshot;}
-async function probeArea(broker,area){const spec={account:{path:'/equity/account/summary',scope:'account'},positions:{path:'/equity/positions',scope:'portfolio'},pies:{path:'/equity/pies',scope:'pies:read'},instruments:{path:'/equity/metadata/instruments',scope:'metadata'}}[area];try{const data=await broker(spec.path);return {area,scope:spec.scope,state:'available',message:brokerScopeMessage(area,'available'),data};}catch(error){const state=error.code==='BROKER_MISSING_SCOPE'?'missing_scope':error.code==='BROKER_INVALID_CREDENTIALS'?'invalid_credentials':error.code==='BROKER_RATE_LIMIT'||error.code==='BROKER_UPSTREAM'?'rate_limited':error.code==='BROKER_FORBIDDEN'?'forbidden':null;if(!state)throw error;return {area,scope:spec.scope,state,message:error.message,data:null};}}
+async function probeArea(broker,area){const spec={account:{path:'/equity/account/summary',scope:'account'},positions:{path:'/equity/positions',scope:'portfolio'},pies:{path:'/equity/pies',scope:'pies:read'},instruments:{path:'/equity/metadata/instruments',scope:'metadata'}}[area];try{const data=await broker(spec.path);return {area,scope:spec.scope,state:'available',message:brokerScopeMessage(area,'available'),data};}catch(error){const state=error.code==='BROKER_MISSING_SCOPE'?'missing_scope':error.code==='BROKER_INVALID_CREDENTIALS'?'invalid_credentials':error.code==='BROKER_RATE_LIMIT'||error.code==='BROKER_UPSTREAM'?'rate_limited':error.code==='BROKER_BAD_REQUEST'?'bad_request':error.code==='BROKER_FORBIDDEN'?'forbidden':null;if(!state)throw error;return {area,scope:spec.scope,state,message:error.message,data:null};}}
 async function storePieList(owner,database,pies){const known=await database(own('v12_broker_pies',owner,'select=pie_id,details,detail_status,summary,detail_read_at'));const seen=new Set();for(const pie of pies||[]){const id=Number(pie.id);if(!Number.isSafeInteger(id)||id<=0)continue;seen.add(id);const old=known.find(row=>Number(row.pie_id)===id);const keptStatus=old?.details?'loaded':old?.detail_status==='missing_scope'?'missing_scope':'pending';await database('v12_broker_pies?on_conflict=owner_id,pie_id','POST',{owner_id:owner,pie_id:id,summary:pie,details:old?.details??null,detail_status:keptStatus,detail_read_at:old?.detail_read_at??null,paused_at:null,updated_at:new Date().toISOString()});const binding=(await database(own('v12_pie_bindings',owner,'pie_id=eq.'+id)))[0];if(binding?.last_error?.code==='PIE_ABSENT')await database(own('v12_pie_bindings',owner,'pie_id=eq.'+id),'PATCH',{status:binding.enabled?'active':'paused',last_error:null});}for(const row of known){if(seen.has(Number(row.pie_id)))continue;await database(own('v12_broker_pies',owner,'pie_id=eq.'+row.pie_id),'PATCH',{paused_at:new Date().toISOString(),detail_status:'paused'});const binding=(await database(own('v12_pie_bindings',owner,'pie_id=eq.'+row.pie_id)))[0];if(binding&&binding.last_error?.code!=='PIE_ABSENT')await database(own('v12_pie_bindings',owner,'pie_id=eq.'+row.pie_id),'PATCH',{status:'paused',last_error:{code:'PIE_ABSENT',message:'Der Pie ist bei Trading212 nicht mehr sichtbar. Die Zuordnung bleibt gespeichert.'}});}}
 async function schedulePieReads(owner,database,pies){const bindings=await database(own('v12_pie_bindings',owner));const piePrefs=(await database(own('v12_preferences',owner,'select=sync_interval_minutes')))[0];const tasks=await database(own('v12_tasks',owner,'kind=eq.pie-read&status=in.(queued,running)&select=task_key,payload'));const rows=await database(own('v12_broker_pies',owner,'select=pie_id,detail_read_at,paused_at'));for(const pie of pies||[]){const id=Number(pie.id);const row=rows.find(item=>Number(item.pie_id)===id);if(row?.paused_at)continue;const binding=bindings.find(item=>Number(item.pie_id)===id);const readAt=Date.parse(row?.detail_read_at||'');if(Number.isFinite(readAt)&&Date.now()-readAt<pieRefreshDelayMs(binding,piePrefs?.sync_interval_minutes))continue;if(tasks.some(task=>task.task_key===String(id)||Number(task.payload?.pieId)===id))continue;await enqueue(owner,'pie-read',String(id),{pieId:id},binding?.enabled?80:40,false);}}
-async function syncAccount(owner,broker,database){const probe=await probeArea(broker,'account');await saveCapability(owner,database,'account',probe);if(probe.state==='available'){const summary=probe.data;await mergeSnapshot(owner,database,{currency:summary.currency,totalValue:summary.totalValue,cash:summary.cash,investments:summary.investments,accountAsOf:new Date().toISOString()});if(summary.currency==='EUR'&&Number.isFinite(summary.totalValue))await database('v12_broker_days?on_conflict=owner_id,date','POST',{owner_id:owner,date:new Date().toISOString().slice(0,10),value_cents:Math.round(summary.totalValue*100)});}return probe;}
+async function syncAccount(owner,broker,database){const probe=await probeArea(broker,'account');await saveCapability(owner,database,'account',probe);if(probe.state==='available'){const summary=probe.data;const cash=summary.cash||{},investments=summary.investments||{};await mergeSnapshot(owner,database,{currency:summary.currency,totalValue:summary.totalValue,cash:summary.cash,investments:summary.investments,cashAvailable:Number.isFinite(cash.availableToTrade)?cash.availableToTrade:null,cashInPies:Number.isFinite(cash.pieCash)?cash.pieCash:null,investmentsCurrent:Number.isFinite(investments.currentValue)?investments.currentValue:null,accountAsOf:new Date().toISOString()});if(summary.currency==='EUR'&&Number.isFinite(summary.totalValue))await database('v12_broker_days?on_conflict=owner_id,date','POST',{owner_id:owner,date:new Date().toISOString().slice(0,10),value_cents:Math.round(summary.totalValue*100)});}return probe;}
 async function syncPositions(owner,broker,database){const probe=await probeArea(broker,'positions');await saveCapability(owner,database,'positions',probe);if(probe.state==='available')await mergeSnapshot(owner,database,{positions:(probe.data||[]).map(position=>({ticker:position.instrument?.ticker||position.ticker,isin:position.instrument?.isin,name:position.instrument?.name||position.ticker,quantity:position.quantity,quantityInPies:position.quantityInPies,walletImpact:position.walletImpact,currentPrice:position.currentPrice})),positionsAsOf:new Date().toISOString()});return probe;}
 async function syncPies(owner,broker,database){const probe=await probeArea(broker,'pies');await saveCapability(owner,database,'pies',probe);if(probe.state==='available'){if(!Array.isArray(probe.data))throw new ServiceError('BROKER_DATA_INVALID','Trading212 liefert keine Pie-Liste.');await storePieList(owner,database,probe.data);await mergeSnapshot(owner,database,{pies:probe.data.map(pie=>({id:pie.id,name:pie.settings?.name||pie.name||null,value:pie.result?.priceAvgValue??null,cash:pie.cash??null})),piesAsOf:new Date().toISOString()});await schedulePieReads(owner,database,probe.data);await ensureMirrorTasks(owner);}return probe;}
 async function syncInstruments(owner,broker,database){const probe=await probeArea(broker,'instruments');await saveCapability(owner,database,'instruments',probe);if(probe.state==='available'&&Array.isArray(probe.data)){const catalog=probe.data.map(row=>({ticker:row.ticker,isin:row.isin||null,currencyCode:row.currencyCode||null,type:row.type||null,name:row.name||row.shortName||null}));probe.data=null;await database('wealth_cache?on_conflict=owner_id,cache_key','POST',{owner_id:owner,cache_key:'trading212-instruments',payload:catalog,expires_at:new Date(Date.now()+86400000).toISOString(),retrieved_at:new Date().toISOString()});await ensureMarket(owner);}return probe;}
@@ -700,7 +737,9 @@ async function ensureMarket(owner){const tasks=await db(own('v12_tasks',owner,'k
  async function writePie(task,broker){
   const owner=task.owner_id,pie=Number(task.payload.pieId),binding=(await db(own('v12_pie_bindings',owner,'pie_id=eq.'+pie)))[0];
   if(!binding?.enabled||!['active','writing'].includes(binding.status))return {result:{skipped:true}};
-  const live=await broker('/equity/pies/'+pie),current=pieShares(live),currentHash=await sharesHash(current);
+  let live;try{live=await broker('/equity/pies/'+pie);}
+  catch(e){if(e?.status===404){await db(own('v12_pie_bindings',owner,'pie_id=eq.'+pie),'PATCH',{status:'conflict',enabled:false,last_error:{code:'PIE_GONE',message:'Der Pie wurde bei Trading212 nicht gefunden. Die automatische Zielpflege wurde deaktiviert. Zuordnung prüfen und die Zielpflege erneut freigeben.'}});throw new ServiceError('PIE_GONE','Der Pie wurde bei Trading212 nicht gefunden. Die automatische Zielpflege wurde deaktiviert.',{status:404});}throw e;}
+  const current=pieShares(live),currentHash=await sharesHash(current);
   await db('v12_broker_pies?on_conflict=owner_id,pie_id','POST',{owner_id:owner,pie_id:pie,details:live,detail_status:'loaded',detail_read_at:new Date().toISOString(),updated_at:new Date().toISOString()});
   // An uncertain POST is always resolved by GET before another write.
   if(binding.pending_hash&&currentHash===binding.pending_hash){await db('rpc/finish_v12_pie_write','POST',{p_owner:owner,p_pie:pie,p_task:binding.write_lease,p_hash:currentHash,p_reason:'Broker-Zielgewichte zurückgelesen und bestätigt.'});await markWriteChecked(owner);return {result:{confirmed:true},delay:900};}
@@ -715,7 +754,9 @@ async function ensureMarket(owner){const tasks=await db(own('v12_tasks',owner,'k
   }else{
    const [models,profiles,plans]=await Promise.all([db(own('wealth_models',owner,'strategy_key=eq.'+binding.strategy_id)),db(own('advisor_profiles',owner,'strategy_key=eq.'+binding.strategy_id)),db(own('finance_plans',owner))]);
    const m=models[0]?.model,p=profiles[0]?.profile,goal=plans[0]?.data?.strategies?.find(x=>x.id===binding.strategy_id);
-   if(!p?.enabled||!m||Date.now()-Date.parse(m.marketAsOf)>7*86400000)throw new ServiceError('MODEL_STALE','Keine aktuelle bestätigte Modellstrategie zum Schreiben verfügbar.',{retryable:true});
+   if(p&&p.mandateVersion!==2)throw new ServiceError('MANDATE_LEGACY','Diese Zuordnung stammt aus einer älteren Mandatsversion. Anlageprofil erneut bestätigen und die Pie-Zuordnung neu anlegen.',{retryable:false});
+   if(!p?.enabled)throw new ServiceError('MODEL_STALE','Das Mandat ist pausiert. Es wird nichts geschrieben, bis das Mandat erneut bestätigt wird.',{retryable:false});
+   if(!m||Date.now()-Date.parse(m.marketAsOf)>7*86400000)throw new ServiceError('MODEL_STALE','Keine aktuelle bestätigte Modellstrategie zum Schreiben verfügbar.',{retryable:true});
    if(!goal||mandateIdentity(mandate(goal,true))!==mandateIdentity(p))throw new ServiceError('MANDATE_CHANGED','Das Anlageprofil wurde geändert. Mandat erneut bestätigen.');
    if(p.approach==='active'&&m.recommendation.positions.some(pos=>{const f=m.market?.find(x=>x.id===pos.id)?.facts;return !f?.asOf||Date.now()-Date.parse(f.asOf)>550*86400000;}))throw new ServiceError('FACTS_STALE','Fundamentaldaten sind für eine Pie-Zieländerung nicht ausreichend aktuell.');
    validateModel(m.recommendation,p,m.universe,m.market);
@@ -754,10 +795,20 @@ async function ensureMarket(owner){const tasks=await db(own('v12_tasks',owner,'k
   try{
    const data=await boundedJSON(req,32000);
    if(data.action==='dispatch'){
-    if(!env.cronSecret||env.cronSecret.length<32||req.headers.get('X-Kontur-Cron')!==env.cronSecret)return json({error:'Nicht autorisiert'},401);
-    const task=await db('rpc/claim_v12_task','POST',{});if(!task)return json({processed:0});const start=Date.now();
-    try{const out=await work(task);await db('rpc/finish_v12_task','POST',{p_owner:task.owner_id,p_id:task.id,p_lease:task.lease,p_result:{...out.result,durationMs:Date.now()-start,memoryBytes:globalThis.Deno?.memoryUsage?.().rss||null},p_error:null,p_retryable:false,p_delay_seconds:out.delay??null});return json({processed:1,kind:task.kind});}
-    catch(e){const diagnostic=diagnostics(e);if(/BROKER_RATE_LIMIT/.test(e.message))diagnostic.retryable=true;if(e.code==='BUDGET_LIMIT'){diagnostic.retryable=true;diagnostic.retryAfter=21600;}await db('rpc/finish_v12_task','POST',{p_owner:task.owner_id,p_id:task.id,p_lease:task.lease,p_result:null,p_error:diagnostic,p_retryable:diagnostic.retryable,p_delay_seconds:diagnostic.retryAfter||null});return json({processed:1,error:diagnostic});}
+    // W15/S3: Timing-sicherer Vergleich über SHA-256-Hashes beider Werte.
+    const digest=async value=>new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(value))));
+    const [expected,provided]=await Promise.all([digest(env.cronSecret||''),digest(req.headers.get('X-Kontur-Cron')||'')]);
+    const equal=expected.length===provided.length&&expected.every((byte,index)=>byte===provided[index]);
+    if(!env.cronSecret||env.cronSecret.length<32||!equal)return json({error:'Nicht autorisiert'},401);
+    // W17: Mehrere Aufgaben pro Aufruf, solange aus dem 95-Sekunden-Budget mehr als 15 Sekunden Rest bleiben. claim_v12_task (SKIP LOCKED) bleibt reentrant-safe.
+    const budgetEnd=Date.now()+80000;let processed=0;const kinds=[];let lastError=null;
+    while(Date.now()<budgetEnd){
+     const task=await db('rpc/claim_v12_task','POST',{});if(!task)break;
+     const start=Date.now();
+     try{const out=await work(task);await db('rpc/finish_v12_task','POST',{p_owner:task.owner_id,p_id:task.id,p_lease:task.lease,p_result:{...out.result,durationMs:Date.now()-start,memoryBytes:globalThis.Deno?.memoryUsage?.().rss||null},p_error:null,p_retryable:false,p_delay_seconds:out.delay??null});processed++;kinds.push(task.kind);}
+     catch(e){const diagnostic=diagnostics(e);if(/BROKER_RATE_LIMIT/.test(e.message))diagnostic.retryable=true;if(e.code==='BUDGET_LIMIT'){diagnostic.retryable=true;diagnostic.retryAfter=21600;}await db('rpc/finish_v12_task','POST',{p_owner:task.owner_id,p_id:task.id,p_lease:task.lease,p_result:null,p_error:diagnostic,p_retryable:diagnostic.retryable,p_delay_seconds:diagnostic.retryAfter||null});processed++;kinds.push(task.kind);lastError=diagnostic;}
+    }
+    return json(lastError?{processed,kinds,error:lastError}:{processed,kinds});
    }
    if(!allowed)return json({error:'ALLOWED_ORIGINS prüfen.'},403);
    const auth=req.headers.get('Authorization')||'';if(!/^Bearer \S+$/.test(auth))return json({error:'Bitte anmelden.'},401);
@@ -770,12 +821,12 @@ async function ensureMarket(owner){const tasks=await db(own('v12_tasks',owner,'k
    if(data.action==='test-ai'){let connection;try{connection=await checkOpenRouter(env,fetcher,{db,owner});}catch(e){await db('v12_preferences?on_conflict=owner_id','POST',{owner_id:owner,connection:{ready:false,error:diagnostics(e),checkedAt:new Date().toISOString()}});throw e;}await db('v12_preferences?on_conflict=owner_id','POST',{owner_id:owner,connection});await db(own('advisor_profiles',owner,'setup_error=not.is.null'),'PATCH',{setup_error:null,next_due:new Date().toISOString()});return json(connection);}
    if(data.action==='enable-broker'){
     if(data.consent!==true)throw new ServiceError('CONSENT','Automatischen Broker-Abgleich einmalig bestätigen.');await db('v12_preferences?on_conflict=owner_id','POST',{owner_id:owner,broker_enabled:data.enabled===true});
-    if(data.enabled){await enqueue(owner,'broker-account','account',{},100,true);await enqueue(owner,'broker-positions','positions',{},99,true);await enqueue(owner,'broker-pies','pies',{},98,true);await enqueue(owner,'broker-instruments','instruments',{},40,true);await ensureSources(owner);await ensureMirrorTasks(owner);}else await db(own('v12_tasks',owner,'kind=in.(broker,broker-account,broker-positions,broker-pies,broker-instruments,pie-read)&status=neq.running'),'PATCH',{status:'cancelled'});return json({saved:true});
+    if(data.enabled){await enqueue(owner,'broker-account','account',{},100,true);await enqueue(owner,'broker-positions','positions',{},99,true);await enqueue(owner,'broker-pies','pies',{},98,true);await enqueue(owner,'broker-instruments','instruments',{},40,true);await ensureSources(owner);await ensureMirrorTasks(owner);}else await db(own('v12_tasks',owner,'kind=in.(broker,broker-account,broker-positions,broker-pies,broker-instruments,pie-read)&status=in.(queued,blocked)'),'PATCH',{status:'cancelled'});return json({saved:true});
    }
-   if(data.action==='test-broker'){const broker=brokerClient(env,db,fetcher,owner);const areas=[];for(const area of ['positions','account','instruments','pies']){try{const probe=await (area==='account'?syncAccount:area==='positions'?syncPositions:area==='instruments'?syncInstruments:syncPies)(owner,broker,db);areas.push({area,scope:probe.scope,state:probe.state,message:probe.message});}catch(error){areas.push({area,state:error.retryable?'rate_limited':'forbidden',message:error.message||'Abruf fehlgeschlagen. Der letzte Stand bleibt erhalten.'});}}const prefs=(await db(own('v12_preferences',owner)))[0];return json({areas,capabilities:prefs?.broker_capabilities||{},piesWrite:prefs?.broker_capabilities?.piesWrite||{state:'unchecked',scope:'pies:write',message:'pies:write ist noch nicht geprüft. Ein zerstörungsfreier Test ist nicht verfügbar.'}});}
+   if(data.action==='test-broker'){const broker=brokerClient(env,db,fetcher,owner);const areas=[];for(const area of ['positions','account','instruments','pies']){try{const probe=await probeArea(broker,area);areas.push({area,scope:probe.scope,state:probe.state,message:probe.message});}catch(error){areas.push({area,state:error.retryable?'rate_limited':'forbidden',message:error.message||'Abruf fehlgeschlagen. Der letzte Stand bleibt erhalten.'});}}const prefs=(await db(own('v12_preferences',owner)))[0];return json({areas,capabilities:prefs?.broker_capabilities||{},piesWrite:prefs?.broker_capabilities?.piesWrite||{state:'unchecked',scope:'pies:write',message:'pies:write ist noch nicht geprüft. Ein zerstörungsfreier Test ist nicht verfügbar.'}});}
    if(data.action==='set-market-mode'){if(!['free_only','free_then_paid'].includes(data.mode))throw new ServiceError('MODE_INVALID','Marktdatenmodus ist kostenlos oder kostenlos mit ausdrücklich aktiviertem Fallback.');await db('v12_preferences?on_conflict=owner_id','POST',{owner_id:owner,market_data_mode:data.mode});return json({saved:true,mode:data.mode});}
    if(data.action==='set-sync-interval'){const minutes=Number(data.minutes);if(![5,10,15,60,1440].includes(minutes))throw new ServiceError('SYNC_INTERVAL_INVALID','Synchronisations-Intervall ist 5, 10, 15, 60 Minuten oder täglich.');await db('v12_preferences?on_conflict=owner_id','POST',{owner_id:owner,sync_interval_minutes:minutes});return json({saved:true,syncIntervalMinutes:minutes});}
-   if(data.action==='assign-pie'){const pie=Number(data.pieId);if(!Number.isSafeInteger(pie)||pie<=0)throw new ServiceError('PIE_INVALID','Pie auswählen.');if(!['advisor','mirror','manual'].includes(data.controller))throw new ServiceError('PIE_INVALID','Bitte Advisor, Wikifolio oder Manuell wählen. Nicht zugeordnet bleibt ohne Speichern.');const row=(await db(own('v12_broker_pies',owner,'pie_id=eq.'+pie)))[0];if(!row)throw new ServiceError('PIE_INVALID','Pie zuerst aus Trading212 importieren.');const binding=await db('rpc/save_v12_binding','POST',{p_owner:owner,p_binding:{pie_id:pie,controller:data.controller,strategy_id:data.strategyId||'',plan_entry_id:data.planEntryId||'',source_symbol:String(data.sourceSymbol||'').toUpperCase(),enabled:false,expected_hash:await sharesHash(row.details?pieShares(row.details):{})}});return json({binding,assigned:true});}
+   if(data.action==='assign-pie'){const pie=Number(data.pieId);if(!Number.isSafeInteger(pie)||pie<=0)throw new ServiceError('PIE_INVALID','Pie auswählen.');if(!['advisor','mirror','manual'].includes(data.controller))throw new ServiceError('PIE_INVALID','Bitte Advisor, Wikifolio oder Manuell wählen. Nicht zugeordnet bleibt ohne Speichern.');if(data.consent!==true)throw new ServiceError('CONSENT','Zuordnung einmalig bestätigen. Die Zielpflege wird danach separat freigegeben.');const row=(await db(own('v12_broker_pies',owner,'pie_id=eq.'+pie)))[0];if(!row)throw new ServiceError('PIE_INVALID','Pie zuerst aus Trading212 importieren.');const binding=await db('rpc/save_v12_binding','POST',{p_owner:owner,p_binding:{pie_id:pie,controller:data.controller,strategy_id:data.strategyId||'',plan_entry_id:data.planEntryId||'',source_symbol:String(data.sourceSymbol||'').toUpperCase(),enabled:false,expected_hash:await sharesHash(row.details?pieShares(row.details):{})}});return json({binding,assigned:true});}
    if(data.action==='preview-pie'){const pie=Number(data.pieId);const binding=(await db(own('v12_pie_bindings',owner,'pie_id=eq.'+pie)))[0];if(!binding)throw new ServiceError('PIE_UNASSIGNED','Zuerst Advisor, Wikifolio oder Manuell speichern. Nicht zugeordnet ist keine manuelle Steuerung.');if(binding.controller==='manual')return json({preview:{manual:true,message:'Manuelle Pies werden nur neu eingelesen. Kontur ändert keine Zielgewichte.'}});let desired,meta;if(binding.controller==='mirror'){const source=(await db(own('v12_mirror_sources',owner,'symbol=eq.'+binding.source_symbol)))[0];if(source?.status!=='verified')throw new ServiceError('SOURCE_UNVERIFIED','Wikifolio-Zugang muss erneut bestätigt werden.');const instruments=(await db(own('wealth_cache',owner,'cache_key=eq.trading212-instruments')))[0]?.payload||await brokerClient(env,db,fetcher,owner)('/equity/metadata/instruments');meta=mirrorShares(source.snapshot,instruments);desired=meta.shares;}else{const [models,profiles]=await Promise.all([db(own('wealth_models',owner,'strategy_key=eq.'+binding.strategy_id)),db(own('advisor_profiles',owner,'strategy_key=eq.'+binding.strategy_id))]);const model=models[0]?.model,profile=profiles[0]?.profile;if(!profile?.enabled||!model)throw new ServiceError('MODEL_STALE','Keine aktuelle bestätigte Modellstrategie für die Vorschau.');const rows=model.recommendation.positions.map(position=>{const instrument=model.universe.find(item=>item.id===position.id);if(!instrument?.brokerTicker)throw new ServiceError('INSTRUMENT_UNCONFIRMED','Eine Position hat keine bestätigte Trading212-Zuordnung.');return {ticker:instrument.brokerTicker,weight:position.weightBps};});desired=normalizeShares(rows);meta={omitted:[],cashBps:model.recommendation.cashWeightBps,reason:model.recommendation.changeReason};}return json({preview:{desired,omitted:meta.omitted||[],cashBps:meta.cashBps??null,reason:meta.reason||'Handelbare Titel auf 100 % normiert. Keine Order.',orders:false}});}
    if(data.action==='enable-control'){if(data.consent!==true)throw new ServiceError('CONSENT','Automatische Zielpflege einmalig freigeben. Es werden keine Orders ausgelöst.');const pie=Number(data.pieId);const existing=(await db(own('v12_pie_bindings',owner,'pie_id=eq.'+pie)))[0];if(!existing)throw new ServiceError('PIE_UNASSIGNED','Zuerst die Zuordnung speichern.');if(existing.controller==='manual')throw new ServiceError('PIE_MANUAL','Manuelle Pies erhalten keine automatische Zielpflege.');const live=await brokerClient(env,db,fetcher,owner)('/equity/pies/'+pie);await db('v12_broker_pies?on_conflict=owner_id,pie_id','POST',{owner_id:owner,pie_id:pie,details:live,detail_status:'loaded',detail_read_at:new Date().toISOString(),updated_at:new Date().toISOString()});const binding=await db('rpc/save_v12_binding','POST',{p_owner:owner,p_binding:{pie_id:pie,controller:existing.controller,strategy_id:existing.strategy_id,plan_entry_id:existing.plan_entry_id,source_symbol:existing.source_symbol,enabled:true,expected_hash:await sharesHash(pieShares(live))}});await enqueue(owner,'pie-write',pie,{pieId:pie},70,true);return json({binding,enabled:true});}
    if(data.action==='research'){const offset=Number(data.offset||0);if(!Number.isSafeInteger(offset)||offset<0||offset>100000)throw new ServiceError('PAGE_INVALID','Ungültige Ergebnisseite.');const filter=['mapped','analysed','incomplete','unmapped','stale'].includes(data.status)?'&status=eq.'+data.status:'';return json({items:await db(own('v12_instruments',owner,'active=eq.true&select=isin,name,status,reason,provider_ticker,sector,score,as_of,deep_analysis&order=isin&limit=25&offset='+offset+filter))});}
@@ -785,7 +836,7 @@ async function ensureMarket(owner){const tasks=await db(own('v12_tasks',owner,'k
    }
    if(data.action==='probe-source'){const symbol=String(data.symbol||'').toUpperCase();const source=(await db(own('v12_mirror_sources',owner,'symbol=eq.'+encodeURIComponent(symbol))))[0];if(!source)throw new ServiceError('SOURCE_MISSING','Quelle zuerst speichern.');await sourceProbe(owner,symbol);await enqueue(owner,'mirror',symbol,{},80,true);return json({verified:true});}
    if(data.action==='delete-source'){
-    const symbol=String(data.symbol||'').toUpperCase();if((await db(own('v12_pie_bindings',owner,'source_symbol=eq.'+encodeURIComponent(symbol)))).length)throw new ServiceError('SOURCE_IN_USE','Zuerst die Pie-Steuerung entfernen.');await db(own('v12_tasks',owner,'kind=eq.mirror&task_key=eq.'+encodeURIComponent(symbol)),'PATCH',{status:'cancelled'});await db(own('v12_mirror_sources',owner,'symbol=eq.'+encodeURIComponent(symbol)),'DELETE');return json({deleted:true});
+    const symbol=String(data.symbol||'').toUpperCase();if((await db(own('v12_pie_bindings',owner,'source_symbol=eq.'+encodeURIComponent(symbol)))).length)throw new ServiceError('SOURCE_IN_USE','Zuerst die Pie-Steuerung entfernen.');await db(own('v12_tasks',owner,'kind=eq.mirror&task_key=eq.'+encodeURIComponent(symbol)+'&status=in.(queued,blocked)'),'PATCH',{status:'cancelled'});await db(own('v12_mirror_sources',owner,'symbol=eq.'+encodeURIComponent(symbol)),'DELETE');return json({deleted:true});
    }
    if(data.action==='bind-pie'){const pie=Number(data.pieId);if(!Number.isSafeInteger(pie)||pie<=0)throw new ServiceError('PIE_INVALID','Pie auswählen.');if(!['advisor','mirror','manual'].includes(data.controller))throw new ServiceError('PIE_INVALID','Bitte Advisor, Wikifolio oder Manuell wählen. Nicht zugeordnet bleibt ohne Speichern.');if(data.consent!==true)throw new ServiceError('CONSENT','Zuordnung einmalig bestätigen. Die Zielpflege wird danach separat freigegeben.');const row=(await db(own('v12_broker_pies',owner,'pie_id=eq.'+pie)))[0];if(!row)throw new ServiceError('PIE_INVALID','Pie zuerst aus Trading212 importieren.');const binding=await db('rpc/save_v12_binding','POST',{p_owner:owner,p_binding:{pie_id:pie,controller:data.controller,strategy_id:data.strategyId||'',plan_entry_id:data.planEntryId||'',source_symbol:String(data.sourceSymbol||'').toUpperCase(),enabled:false,expected_hash:await sharesHash(row.details?pieShares(row.details):{})}});return json({binding,assigned:true,enabled:false,message:'Zuordnung gespeichert. Die automatische Zielpflege ist noch nicht frei.'});}
    if(data.action==='remove-control'){const pie=Number(data.pieId);if(!Number.isSafeInteger(pie))throw new ServiceError('PIE_INVALID','Ungültige Pie-ID.');await db('rpc/remove_v12_control','POST',{p_owner:owner,p_pie:pie});return json({deleted:true});}
@@ -801,9 +852,12 @@ return {createServicesHandler};
 // supabase/functions/kontur-services/index.ts
 const __module0=(()=>{
 const {createServicesHandler}=__module1;
+// K6: Ohne gesetztes Secret bleibt die App über die Standard-Origin erreichbar;
+// gegenüber allen anderen Origins bleibt die Prüfung fail-closed.
+const allowedOriginsFallback=(Deno.env.get('ALLOWED_ORIGINS')||'').split(',').map(x=>x.trim()).filter(Boolean);
 Deno.serve(createServicesHandler({
  url:Deno.env.get('SUPABASE_URL')||'',serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')||'',
- allowedOrigins:(Deno.env.get('ALLOWED_ORIGINS')||'').split(',').map(x=>x.trim()).filter(Boolean),
+ allowedOrigins:allowedOriginsFallback.length?allowedOriginsFallback:['https://ggjzmbvht4-sketch.github.io'],
  enforceBudget:true,billingOwner:Deno.env.get('TRADING212_OWNER_ID'),brokerOwner:Deno.env.get('TRADING212_OWNER_ID'),brokerKey:Deno.env.get('TRADING212_API_KEY'),brokerSecret:Deno.env.get('TRADING212_API_SECRET'),
  datasetsKey:Deno.env.get('FINANCIAL_DATASETS_API_KEY'),newsKey:Deno.env.get('FINNHUB_API_KEY'),openrouterKey:Deno.env.get('OPENROUTER_API_KEY'),model:Deno.env.get('OPENROUTER_ADVISOR_MODEL')||Deno.env.get('OPENROUTER_MODEL')||'anthropic/claude-haiku-5.5',
  cronSecret:Deno.env.get('ADVISOR_CRON_SECRET'),wikifolioEmail:Deno.env.get('WIKIFOLIO_EMAIL'),wikifolioPassword:Deno.env.get('WIKIFOLIO_PASSWORD'),wikifolioSessionKey:Deno.env.get('WIKIFOLIO_SESSION_ENCRYPTION_KEY')
