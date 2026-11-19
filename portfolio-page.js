@@ -28,7 +28,7 @@ export function portfolioPage(ctx){
   (roots.length?'<section class="card"><h2>Weitere Anlagen und Beteiligungen</h2>'+table(roots.map(a=>row(a)))+'</section>':'')+
   (!p.assets.length?'<section class="card advisor-empty"><h2>Dein erster Bestand</h2><p>Erfasse einen ausgeführten Kauf oder lege einen bestehenden Pie mit seinen Positionen an.</p><button class="btn primary" data-pf="add">Bestand anlegen</button></section>':'');
  }
- function input(e){if(e.target.id!=='portfolio-v9-search')return false;search=e.target.value;ctx.render();const node=document.getElementById('portfolio-v9-search');node?.focus();return true;}
+ function input(e){if(e.target.id!=='portfolio-v9-search')return false;const cursor=e.target.selectionStart;search=e.target.value;ctx.render();const node=document.getElementById('portfolio-v9-search');node?.focus();node?.setSelectionRange(cursor,cursor);return true;}
  function click(t){if(t.dataset.portfolioMap){mapMode=mapMode==='pies'?'class':'pies';highlight='';}else highlight=t.dataset.id;ctx.render();}
  return {page,input,click};
 }

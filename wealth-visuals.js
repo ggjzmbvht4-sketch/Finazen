@@ -1,3 +1,4 @@
+import {pct} from './engine.js';
 export const CLASS_COLORS={stock:'#ed7767',etf:'#1ddbc3',bond:'#56bed5',fund:'#a68ad0',cash:'#7ba23c',private:'#b889dd',alternative:'#f0b94e',pie:'#37bfa8'};
 export function modelProjection(start,monthly,years,rates){
  if(![start,monthly,years,...rates].every(Number.isFinite)||start<0||monthly<0||years<1||years>50||rates.some(x=>x<=-100||x>100))throw Error('Modellannahmen prüfen.');
@@ -40,7 +41,7 @@ export function tileText(color){
 export function treemapHTML(items,esc,action='tile'){
  const total=items.reduce((n,x)=>n+x.value,0);
  if(!total)return '<div class="map-empty">Für diese Darstellung fehlen positive Werte.</div>';
- return '<div class="wealth-map" aria-label="Gewichtung nach Flächenanteil">'+treemap(items).map(x=>'<button type="button" data-visual="'+action+'" data-id="'+esc(x.id)+'" class="map-tile" style="left:'+x.x+'%;top:'+x.y+'%;width:'+x.w+'%;height:'+x.h+'%;background:'+x.color+';--tile-text:'+tileText(x.color)+'" title="'+esc(x.name)+' · '+(x.value/total*100).toFixed(1)+' %"><span>'+esc(x.name)+'</span><strong>'+(x.value/total*100).toFixed(1)+' %</strong></button>').join('')+'</div>';
+ return '<div class="wealth-map" aria-label="Gewichtung nach Flächenanteil">'+treemap(items).map(x=>'<button type="button" data-visual="'+action+'" data-id="'+esc(x.id)+'" class="map-tile" style="left:'+x.x+'%;top:'+x.y+'%;width:'+x.w+'%;height:'+x.h+'%;background:'+x.color+';--tile-text:'+tileText(x.color)+'" title="'+esc(x.name)+' · '+pct(x.value/total*100)+'"><span>'+esc(x.name)+'</span><strong>'+pct(x.value/total*100)+'</strong></button>').join('')+'</div>';
 }
 export function historyChart(rows,format){
  if(rows.length<2)return '<p class="chart-empty">Mit datierten Wertständen entsteht hier dein Depotverlauf.</p>';
