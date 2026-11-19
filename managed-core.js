@@ -8,11 +8,22 @@ export function mandate(goal, enabled = true) {
   if (goal.emergencyFund !== 'covered') throw Error('Zuerst einen verfügbaren Notgroschen außerhalb dieser Strategie einplanen.');
   if (goal.approach === 'active' && (goal.experience !== 'experienced' || goal.years < 5 || goal.lossTolerance < 30 || goal.liquidityYears > 0 && goal.liquidityYears < 5)) throw Error('Aktive Aktienstrategien benötigen Erfahrung, mindestens fünf Jahre verfügbares Kapital und mindestens 30 % Verlusttragfähigkeit.');
   if (goal.liquidityYears > 0 && goal.liquidityYears < goal.years) throw Error('Anlagehorizont an den früheren Liquiditätsbedarf anpassen.');
+  // W10 (R1): Mindestanlage — Startkapital plus sechs monatliche Sparraten
+  // müssen zusammen mindestens 100 Euro ergeben. (1:1-Regel wie der Server,
+  // damit die frühe Wizard-Warnung zur späteren Server-Ablehnung passt.)
+  if (goal.start + goal.rate * 6 < 10000) throw Error('Mindestanlage nicht erreicht: Startkapital plus sechs monatliche Sparraten müssen zusammen mindestens 100 Euro ergeben.');
+  // W13 (R4): Optionale Einkommens-/Vermögensangaben und Plausibilität der
+  // Sparrate gegen das deklarierte monatliche Einkommen.
+  const optCents = v => v === undefined || v === null || (Number.isSafeInteger(v) && v >= 0 && v <= 1e14);
+  if (!optCents(goal.monthlyIncomeCents) || !optCents(goal.liquidAssetsCents)) throw Error('Angaben zu Einkommen und verfügbarem Vermögen prüfen.');
+  if (Number.isSafeInteger(goal.monthlyIncomeCents) && goal.rate > goal.monthlyIncomeCents) throw Error('Die monatliche Sparrate übersteigt das deklarierte monatliche Einkommen. Bitte Sparrate oder Angaben anpassen.');
   for (const key of ['sectorLimit','currencyLimit']) if (!integer(goal[key],100,10000)) throw Error('Branchen- und Listingwährungsgrenzen prüfen.');
   if (!Array.isArray(goal.exclude) || goal.exclude.length > 200 || goal.exclude.some(x=>typeof x!=='string')) throw Error('Ausschlüsse prüfen.');
-  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?7:30,driftBps:500};
+  return {mandateVersion:2,rulesVersion:RULES_VERSION,strategyId:goal.id,name:goal.name.trim(),approach:goal.approach,risk:goal.risk,years:goal.years,start:goal.start,rate:goal.rate,target:goal.target,cash:goal.cash,cap:goal.cap,sectorLimit:goal.sectorLimit,currencyLimit:goal.currencyLimit,lossTolerance:goal.lossTolerance,liquidityYears:goal.liquidityYears,experience:goal.experience,emergencyFund:goal.emergencyFund,exclude:[...new Set(goal.exclude)].sort(),...(Number.isSafeInteger(goal.monthlyIncomeCents)?{monthlyIncomeCents:goal.monthlyIncomeCents}:{}),...(Number.isSafeInteger(goal.liquidAssetsCents)?{liquidAssetsCents:goal.liquidAssetsCents}:{}),enabled:enabled===true,consent:true,intervalDays:1,reviewDays:goal.approach==='active'?7:30,driftBps:500};
 }
-export function mandateIdentity(profile) { const {enabled,...identity}=profile; return JSON.stringify(Object.fromEntries(Object.entries(identity).sort(([a],[b])=>a.localeCompare(b)))); }
+// W13 (R4): confirmedAt bleibt außen vor — eine Re-Bestätigung der
+// Geeignetheitsprüfung ändert das Mandat nicht. (1:1 wie der Server.)
+export function mandateIdentity(profile) { const {enabled,confirmedAt,...identity}=profile; return JSON.stringify(Object.fromEntries(Object.entries(identity).sort(([a],[b])=>a.localeCompare(b)))); }
 export function strategicWeights(p) {
   if(p.approach==='active'){const stock=Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.lossTolerance*150,10000-p.cash);return {stock,cash:10000-stock};}
   const equity=Math.min({conservative:3000,balanced:6000,growth:8500}[p.risk],p.years<3?0:p.years<5?3000:10000,p.lossTolerance*150,10000-p.cash);
