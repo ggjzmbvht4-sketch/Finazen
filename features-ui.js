@@ -23,8 +23,11 @@ export function createFeaturesUI(ctx){
    await call('account-tools','delete-account',{confirmed:true,phrase:d.get('phrase'),password:d.get('password')});
    const scope=ctx.getScope(),uid=scope.split('::').at(-1);
    try{await ctx.cloud.signOut();}catch{}
-   await cleanLocal(null,scope);close();
-   ctx.onDeleteAccount(uid);toast('Konto gelöscht.');
+   // R4: Die lokale Plankopie muss auch dann entfernt werden, wenn das Bereinigen
+   // der IndexedDB-Ablagen fehlschlägt — daher onDeleteAccount vor cleanLocal.
+   ctx.onDeleteAccount(uid);close();
+   try{await cleanLocal(null,scope);}catch(e){console.warn('Lokale Berichtsablage konnte nicht vollständig bereinigt werden.',e);}
+   toast('Konto gelöscht.');
   }
   if(form.id==='feature-reset'||form.id==='feature-delete'){
    const reset=form.id==='feature-reset';if(!d.has('confirmed')||reset&&d.get('phrase')!=='ZURÜCKSETZEN')throw Error('Bitte die Löschbestätigung vollständig eingeben.');let pending=null;if(ctx.cloud.session){pending=(await call('account-tools','status')).pending;if(!pending)await ctx.ensureCloud();}const before=JSON.stringify(state());ctx.setLocked(true);ctx.backup();const ids=reset?null:accountDeleteInvestment(state(),form.dataset.id,d.get('keepChildren')==='yes').assetIds;
