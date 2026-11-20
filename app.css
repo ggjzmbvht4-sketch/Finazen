@@ -107,6 +107,7 @@ details>summary{cursor:pointer}form[id^=advisor-]{margin-top:20px}form[id^=advis
 @media(max-width:600px){.overview-metrics{grid-template-columns:1fr;gap:10px}}
 
 
+
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-weight:400}
 .page-heading h1{font-size:34px;letter-spacing:-.9px;font-weight:620}.page-heading .eyebrow{color:var(--accent)}
 .sidebar{background:var(--bg)!important;border-right:1px solid var(--line)}.sidebar .brand{color:var(--text)}.sidebar .brand-dot{color:var(--accent)}.sidebar .nav-item.active{color:var(--accent);background:var(--mint)}
