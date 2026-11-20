@@ -21,7 +21,7 @@ export function createPlanUI({getState,getMonth,commit,render,modal,close,esc,pe
  function page(){
   const body=tab==='reserves'?reservesPage().split('<div class="reserve-grid">').pop():null;
   const actions=tab==='reserves'?'<button class="btn primary" data-action="reserve-add">Rücklage anlegen</button>':tab==='budgets'?button('category','Budget anlegen','',true):'';
-  return `<div class="page-heading"><div><h1>Budgets und Rücklagen</h1><p class="subtitle">Deine Ausgaben, Rücklagen und nächsten Sparraten.</p></div>${actions}</div><div class="section-toolbar">${period()}</div><div class="chips plan-tabs">${mainTabs.map(([k,v])=>`<button class="chip ${tab===k?'active':''}" data-plan="tab" data-id="${k}">${v}</button>`).join('')}</div>`+
+  return `<div class="page-heading"><div><h1>Budgets und Rücklagen</h1><p class="subtitle">Deine Ausgaben, Rücklagen und nächsten Sparraten.</p></div>${actions}</div><div class="section-toolbar">${period()}</div><div class="chips plan-tabs">${mainTabs.map(([k,v])=>`<button class="chip ${tab===k?'active':''}" data-plan="tab" data-id="${k}" aria-pressed="${tab===k}">${v}</button>`).join('')}</div>`+
    (tab==='reserves'?'<div class="reserve-grid">'+body:tab==='budgets'?budgets():tab==='allocate'?allocationPage():review());
  }
  function budgets(){
