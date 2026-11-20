@@ -28,7 +28,11 @@ export function brokerRows(text){
   const feeAmount=feeKeys.reduce((n,k)=>n+Math.round(num(r[k])*100),0);
   const gross=side==='buy'?amount-feeAmount:amount+feeAmount;
   const fx=currency==='EUR'?1:gross/(100*price*num(quantity));
-  const reason=!side?'Andere Buchungsart':!isDate(date)||!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(isin)?'Datum oder ISIN fehlt':r['Currency (Total)']!=='EUR'||feeKeys.some(k=>r['Currency ('+k+')']!=='EUR')?'Gesamtbetrag/Gebühren nicht in EUR':!Number.isSafeInteger(amount)||amount<=0?'Betrag fehlt':side!=='dividend'&&(!(price>0)||!(num(quantity)>0)||!(fx>0)||!currency)?'Ausführung unvollständig':side!=='dividend'&&currency!=='EUR'&&(fx<0.01||fx>100)?'Abgeleitete EUR-Umrechnung unplausibel':side!=='dividend'&&currency==='EUR'&&Math.abs(Math.round(num(quantity)*price*100)-gross)>2?'Gesamtbetrag weicht vom Ausführungspreis ab':'';
+  // N1: Auch Dividenden gegen Stückzahl × Dividende je Aktie plausibilisieren,
+  // damit ein mehrdeutiger Betrag (z. B. "1,234") nicht still als Tausenderwert übernommen wird.
+  const whtKey=Object.keys(r).find(k=>/withholding/i.test(k)&&!k.startsWith('Currency')),withheld=whtKey?Math.round(num(r[whtKey])*100):0;
+  const divGross=Math.round(num(quantity)*price*100);
+  const reason=!side?'Andere Buchungsart':!isDate(date)||!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(isin)?'Datum oder ISIN fehlt':r['Currency (Total)']!=='EUR'||feeKeys.some(k=>r['Currency ('+k+')']!=='EUR')?'Gesamtbetrag/Gebühren nicht in EUR':!Number.isSafeInteger(amount)||amount<=0?'Betrag fehlt':side!=='dividend'&&(!(price>0)||!(num(quantity)>0)||!(fx>0)||!currency)?'Ausführung unvollständig':side!=='dividend'&&currency!=='EUR'&&(fx<0.01||fx>100)?'Abgeleitete EUR-Umrechnung unplausibel':side!=='dividend'&&currency==='EUR'&&Math.abs(Math.round(num(quantity)*price*100)-gross)>2?'Gesamtbetrag weicht vom Ausführungspreis ab':side==='dividend'&&price>0&&num(quantity)>0&&currency==='EUR'&&Math.abs(divGross-withheld-amount)>Math.max(2,Math.round(Math.abs(divGross)*0.02))?'Gesamtbetrag passt nicht zu Stückzahl × Dividende je Aktie (Dezimal- oder Tausenderzeichen prüfen)':side==='dividend'&&price>0&&num(quantity)>0&&currency&&currency!=='EUR'&&(fx<0.01||fx>100)?'Abgeleitete EUR-Umrechnung unplausibel':'';
   const key=r.ID||[r.Time,r.Action,isin,quantity,price,r.Total].join('|');
   return {index,side,date,time:r.Time,isin,quantity,price,currency,feeAmount,fx,amount,key,reason,name:r.Name||r.Ticker,symbol:r.Ticker};
  });
