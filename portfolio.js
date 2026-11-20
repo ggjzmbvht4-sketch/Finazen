@@ -10,8 +10,9 @@ export const emptyPortfolio=()=>({version:1,assets:[],instruments:[],events:[],q
 const uuid=()=>crypto.randomUUID();
 const nonnegative=n=>Number.isSafeInteger(n)&&n>=0&&n<=1e14;
 const date=d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&!Number.isNaN(Date.parse(d))&&new Date(d+'T12:00:00Z').toISOString().slice(0,10)===d;
-export const decimal=(v,scale=8)=>{if(!new RegExp('^\\d+(?:\\.\\d{1,'+scale+'})?$').test(String(v)))throw Error('Bitte eine nichtnegative Zahl mit maximal '+scale+' Nachkommastellen eingeben.');return Number(v);};
-export const pct=n=>new Intl.NumberFormat('de-DE',{minimumFractionDigits:1,maximumFractionDigits:2}).format(n)+' %';
+export const decimal=(v,scale=8)=>{if(!new RegExp('^\\d+(?:\\.\\d{1,'+scale+'})?$').test(String(v)))throw Error('Bitte eine Zahl größer oder gleich 0 mit maximal '+scale+' Nachkommastellen eingeben.');return Number(v);};
+const pctFormat=new Intl.NumberFormat('de-DE',{minimumFractionDigits:1,maximumFractionDigits:2});
+export const pct=n=>pctFormat.format(n)+' %';
 export function validatePortfolio(p,entries=[]){
  if(!p||p.version!==1)throw Error('Unbekanntes Investmentformat.');
  for(const key of ['assets','instruments','events','quotes','compositions','snapshots'])if(!Array.isArray(p[key])||p[key].length>20000)throw Error('Ungültige Investmentdaten: '+key);
@@ -30,8 +31,14 @@ export function validatePortfolio(p,entries=[]){
  checkHoldings(p);return p;
 }
 export function instrumentIdentity(i){const isin=(i.isin||'').trim().toUpperCase(),symbol=(i.symbol||'').trim().toUpperCase(),exchange=(i.exchange||'').trim().toUpperCase();if(isin&&!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(isin))throw Error('Bitte eine ISIN mit 12 Zeichen eingeben.');if(!isin&&!(symbol&&exchange))throw Error('ISIN oder Symbol zusammen mit Börsenplatz angeben.');return (isin?'ISIN:'+isin:'TICKER:'+exchange+':'+symbol)+':'+i.currency;}
+const quoteIndexCache=new WeakMap();
+function quoteIndex(p){const quotes=p.quotes,cached=quoteIndexCache.get(quotes);if(cached&&cached.length===quotes.length)return cached.index;
+ const sorted=[...quotes].sort((a,b)=>b.asOf.localeCompare(a.asOf)||String(b.createdAt).localeCompare(String(a.createdAt))||Number(b.cashSequence??-1)-Number(a.cashSequence??-1)),index=new Map();
+ for(const q of sorted)for(const key of [q.instrumentId?'i:'+q.instrumentId:'',q.assetId?'a:'+q.assetId:''].filter(Boolean)){const list=index.get(key);if(list)list.push(q);else index.set(key,[q]);}
+ quoteIndexCache.set(quotes,{length:quotes.length,index});return index;}
 export function latestQuote(p,asset,asOf=today()){
- return p.quotes.filter(q=>q.asOf<=asOf&&(asset.valuationMode==='units'?q.instrumentId===asset.instrumentId:q.assetId===asset.id)).sort((a,b)=>b.asOf.localeCompare(a.asOf)||String(b.createdAt).localeCompare(String(a.createdAt))||Number(b.cashSequence??-1)-Number(a.cashSequence??-1))[0]||null;
+ const list=quoteIndex(p).get(asset.valuationMode==='units'?'i:'+asset.instrumentId:'a:'+asset.id)||[];
+ return list.find(q=>q.asOf<=asOf)||null;
 }
 export function assetTotals(p,id,asOf=today()){
  const asset=p.assets.find(a=>a.id===id);if(!asset)throw Error('Investment nicht gefunden.');
@@ -39,9 +46,9 @@ export function assetTotals(p,id,asOf=today()){
   const children=p.assets.filter(a=>a.parentId===id),items=children.map(a=>assetTotals(p,a.id,asOf));const known=items.length>0&&items.every(x=>x.known),sum=k=>items.reduce((n,x)=>n+x[k],0);
   return {asset,children:items,known,costKnown:items.length>0&&items.every(x=>x.costKnown),value:sum('value'),contribution:sum('contribution'),withdrawal:sum('withdrawal'),distribution:sum('distribution'),fee:sum('fee'),gain:known&&items.every(x=>x.costKnown)?sum('gain'):null,netInvested:sum('netInvested'),estimated:items.some(x=>x.estimated),stale:items.some(x=>x.stale),asOf:items.map(x=>x.asOf).filter(Boolean).sort()[0]||null,quote:null};
  }
- const events=p.events.filter(e=>e.assetId===id&&e.date<=asOf),sum=type=>events.filter(e=>e.type===type).reduce((n,e)=>n+e.amount,0);const contribution=sum('contribution'),withdrawal=sum('withdrawal'),distribution=sum('distribution'),fee=sum('fee')+events.reduce((n,e)=>n+(e.feeAmount||0),0);
+ const events=p.events.filter(e=>e.assetId===id&&e.date<=asOf),sum=type=>events.filter(e=>e.type===type).reduce((n,e)=>n+e.amount,0);const openingCounted=asset.cashOpeningValue!==undefined&&asset.cashOpeningDate<=asOf;const contribution=sum('contribution')+(openingCounted?asset.cashOpeningValue:0),withdrawal=sum('withdrawal'),distribution=sum('distribution'),fee=sum('fee')+events.reduce((n,e)=>n+(e.feeAmount||0),0);
  const quote=latestQuote(p,asset,asOf);const quantity=asset.valuationMode==='units'?holdingAt(p,asset,asOf):null;const zero=asset.valuationMode==='units'&&quantity===0;const known=asset.valuationMode==='units'?quantity!==null&&(!!quote||zero):!!quote;
- const costKnown=(asset.openingCostKnown!==false||events.some(e=>e.type==='contribution'&&e.costBasisConfirmed===true))&&events.some(e=>e.type==='contribution'&&e.trade!=='adjustment')&&!events.some(e=>e.trade==='adjustment');const value=zero?0:!quote||!known?0:asset.valuationMode==='units'?Math.round(quantity*(quote.priceMicros/1e6)*(quote.fxMicros/1e6)*100):quote.value;
+ const costKnown=(asset.openingCostKnown!==false||events.some(e=>e.type==='contribution'&&e.costBasisConfirmed===true))&&(events.some(e=>e.type==='contribution'&&e.trade!=='adjustment')||openingCounted)&&!events.some(e=>e.trade==='adjustment');const value=zero?0:!quote||!known?0:asset.valuationMode==='units'?Math.round(quantity*(quote.priceMicros/1e6)*(quote.fxMicros/1e6)*100):quote.value;
  const days=quote?(Date.parse(asOf)-Date.parse(quote.asOf))/86400000:0;
  return {asset,known,costKnown,value,contribution,withdrawal,distribution,fee,netInvested:contribution+fee-withdrawal,gain:known&&costKnown?value+withdrawal+distribution-contribution-fee:null,estimated:quote?.source==='estimate',stale:!!quote&&days>(quote.source==='estimate'?120:7),asOf:quote?.asOf||null,quote};
 }
@@ -67,7 +74,7 @@ export function captureSnapshot(p,benchmarkName='',benchmarkLevel=0){const s=por
 export function periodPerformance(p){
  const snapshots=[...p.snapshots].sort((a,b)=>a.date.localeCompare(b.date));if(snapshots.length<2)return null;const first=snapshots[0],last=snapshots.at(-1),duration=Date.parse(last.date)-Date.parse(first.date);if(!duration)return null;
  if(!first.costKnown||!last.costKnown)return {invalid:true,reason:'Für diesen Vergleich fehlen erfasste Einzahlungen.'};
- for(const snap of [first,last])for(const type of ['contribution','withdrawal','distribution','fee']){const actual=p.events.filter(e=>e.date<=snap.date).reduce((n,e)=>n+(e.type===type?e.amount:0)+(type==='fee'?(e.feeAmount||0):0),0);if(actual!==snap[type])return {invalid:true,reason:'Historische Buchungen wurden nach einem Tagesstand verändert. Der Zeitraumvergleich ist angehalten.'};}
+ for(const snap of [first,last])for(const type of ['contribution','withdrawal','distribution','fee']){const actual=p.events.filter(e=>e.date<=snap.date).reduce((n,e)=>n+(e.type===type?e.amount:0)+(type==='fee'?(e.feeAmount||0):0),0)+(type==='contribution'?p.assets.reduce((n,a)=>n+(a.cashOpeningValue!==undefined&&a.cashOpeningDate<=snap.date?a.cashOpeningValue:0),0):0);if(actual!==snap[type])return {invalid:true,reason:'Historische Buchungen wurden nach einem Tagesstand verändert. Der Zeitraumvergleich ist angehalten.'};}
  const flows=p.events.filter(e=>e.date>first.date&&e.date<=last.date);let net=0,weighted=0;for(const e of flows){const flow=(e.type==='adjustment'?0:e.amount*(['contribution','fee'].includes(e.type)?1:-1))+(e.feeAmount||0);const weight=(Date.parse(last.date)-Date.parse(e.date))/duration;net+=flow;weighted+=flow*weight;}
  const gain=last.value-first.value-net,denominator=first.value+weighted;
  const benchmark=first.benchmarkName&&first.benchmarkName===last.benchmarkName&&first.benchmarkMicros>0&&last.benchmarkMicros>0?(last.benchmarkMicros/first.benchmarkMicros-1)*100:null;
@@ -79,7 +86,7 @@ export function quoteRecord(asset,{value=0,price=0,fx=1,asOf=today(),source='man
 export function addDemoInvestments(state){const p=emptyPortfolio(),pie=newAsset({kind:'pie',name:'Mein Welt-Pie',provider:'Trading212',valuationMode:'children',strategy:'Breit gestreutes Beispielportfolio · fiktive Daten'});p.assets.push(pie);
  const specs=[['Welt-ETF','etf','IE00B4L5Y983','USD',12.5,95,0.92,6500,950],['Europa-ETF','etf','IE00B4K48X80','EUR',6,80,1,3500,450]];
  for(const [name,kind,isin,currency,quantity,price,fx,target,paid]of specs){const i={id:uuid(),name,isin,symbol:'',exchange:'',currency,sector:'Breit gestreut',region:'Global'};i.identity=instrumentIdentity(i);p.instruments.push(i);const a=newAsset({kind,name,parentId:pie.id,provider:'Trading212',instrumentId:i.id,quantity:String(quantity),targetBps:target});p.assets.push(a);p.quotes.push(quoteRecord(a,{price,fx,source:'manual'}));p.events.push({id:uuid(),assetId:a.id,type:'contribution',amount:paid*100,date:today(),note:'Fiktives Beispiel'});}
- const extra=newAsset({kind:'etf',name:'Welt-ETF separat',provider:'Anderes Depot',instrumentId:p.instruments[0].id,quantity:'3'});p.assets.push(extra);p.events.push({id:uuid(),assetId:extra.id,type:'contribution',amount:25000,date:today(),note:'Fiktives Beispiel'});
+ const extra=newAsset({kind:'etf',name:'Welt-ETF separat',provider:'Anderer Anbieter',instrumentId:p.instruments[0].id,quantity:'3'});p.assets.push(extra);p.events.push({id:uuid(),assetId:extra.id,type:'contribution',amount:25000,date:today(),note:'Fiktives Beispiel'});
  const a=newAsset({kind:'private',name:'Beispiel Startup GmbH',provider:'Companisto',valuationMode:'manual',liquidity:'long',contractType:'Direkte Beteiligung',note:'Fiktiver Modellwert · kein tatsächliches Angebot'});p.assets.push(a);p.quotes.push(quoteRecord(a,{value:1150,source:'estimate'}));p.events.push({id:uuid(),assetId:a.id,type:'contribution',amount:100000,date:today(),note:'Fiktives Beispiel'});recordComposition(p,pie.id);state.portfolio=p;return state;}
 export function positionCsv(p){const s=portfolioSummary(p),esc=v=>'"'+String(v??'').replaceAll('"','""')+'"';const rows=[['Investment','Anbieter','Pie','Art','ISIN','Stückzahl','Wert EUR','Netto investiert EUR','Ergebnis EUR','Wertquelle','Bewertungsdatum']];for(const x of s.leaves){const a=x.asset,i=p.instruments.find(i=>i.id===a.instrumentId),parent=p.assets.find(v=>v.id===a.parentId);rows.push([a.name,parent?.provider||a.provider,parent?.name||'',KINDS[a.kind],i?.isin||'',a.valuationMode==='units'?a.quantity:'',x.known?(x.value/100).toFixed(2):'',(x.netInvested/100).toFixed(2),x.gain!==null?(x.gain/100).toFixed(2):'',x.quote?SOURCES[x.quote.source]:'',x.asOf||'']);}return '\uFEFF'+rows.map(r=>r.map(v=>esc(/^[=+@-]/.test(String(v))?"'"+v:v)).join(';')).join('\r\n');}
 

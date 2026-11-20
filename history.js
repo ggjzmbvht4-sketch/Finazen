@@ -1,2 +1,5 @@
 import{portfolioSummary,today}from'./portfolio.js';
-export function historicalPortfolio(portfolio,days=90){const p=structuredClone(portfolio);for(const a of p.assets)if(a.valuationMode==='units'&&a.openingQuantity===undefined){a.openingQuantity=a.quantity;a.openingDate=today();}const rows=[];for(let i=days-1;i>=0;i--){const date=new Date(Date.parse(today()+'T12:00:00Z')-i*86400000).toISOString().slice(0,10),s=portfolioSummary(p,date);rows.push({date,value:s.value,known:s.known,unvalued:s.unvalued,contribution:s.contribution,withdrawal:s.withdrawal,distribution:s.distribution,fee:s.fee,costKnown:s.missingCosts===0});}return rows;}
+const cache=new WeakMap();
+export function historicalPortfolio(portfolio,days=90){const hit=cache.get(portfolio);if(hit&&hit.days===days)return hit.rows;
+ const p=structuredClone(portfolio);for(const a of p.assets)if(a.valuationMode==='units'&&a.openingQuantity===undefined){a.openingQuantity=a.quantity;a.openingDate=today();}const rows=[];for(let i=days-1;i>=0;i--){const date=new Date(Date.parse(today()+'T12:00:00Z')-i*86400000).toISOString().slice(0,10),s=portfolioSummary(p,date);rows.push({date,value:s.value,known:s.known,unvalued:s.unvalued,contribution:s.contribution,withdrawal:s.withdrawal,distribution:s.distribution,fee:s.fee,costKnown:s.missingCosts===0});}
+ cache.set(portfolio,{days,rows});return rows;}

@@ -14,16 +14,21 @@ export function csvRecords(text){
  const keys=rows.shift()?.map(k=>k.trim())||[];if(!keys.includes('Action')||!keys.includes('ISIN'))throw Error('Englischen Trading212-Verlauf im CSV-Format wählen.');
  return rows.filter(r=>r.some(Boolean)).map(r=>Object.fromEntries(keys.map((k,i)=>[k,r[i]||''])));
 }
-const num=v=>Number(String(v||0).replace(',','.'));
+const num=v=>{let s=String(v??'').trim().replace(/\s/g,'');if(!s)return 0;
+ if(/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s))s=s.replaceAll('.','').replace(',','.');
+ else if(/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s))s=s.replaceAll(',','');
+ else if(s.includes(',')&&s.includes('.'))return NaN;
+ else s=s.replace(',','.');
+ return Number(s);};
 export function brokerRows(text){
  return csvRecords(text).map((r,index)=>{
   const action=r.Action.toLowerCase(),side=/\bbuy$/.test(action)?'buy':/\bsell$/.test(action)?'sell':action.startsWith('dividend')?'dividend':'';
-  const date=r.Time.slice(0,10),isin=r.ISIN.trim(),quantity=r['No. of shares'].replace(',','.'),price=num(r['Price / share']),currency=r['Currency (Price / share)'],amount=Math.round(num(r.Total)*100);
+  const date=r.Time.slice(0,10),isin=r.ISIN.trim(),quantity=String(num(r['No. of shares'])),price=num(r['Price / share']),currency=r['Currency (Price / share)'],amount=Math.round(num(r.Total)*100);
   const feeKeys=Object.keys(r).filter(k=>/fee|tax|stamp duty|levy/i.test(k)&&!k.startsWith('Currency')&&num(r[k])>0&&!/withholding/i.test(k));
   const feeAmount=feeKeys.reduce((n,k)=>n+Math.round(num(r[k])*100),0);
   const gross=side==='buy'?amount-feeAmount:amount+feeAmount;
   const fx=currency==='EUR'?1:gross/(100*price*num(quantity));
-  const reason=!side?'Andere Buchungsart':!isDate(date)||!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(isin)?'Datum oder ISIN fehlt':r['Currency (Total)']!=='EUR'||feeKeys.some(k=>r['Currency ('+k+')']!=='EUR')?'Gesamtbetrag/Gebühren nicht in EUR':!Number.isSafeInteger(amount)||amount<=0?'Betrag fehlt':side!=='dividend'&&(!(price>0)||!(num(quantity)>0)||!(fx>0)||!currency)?'Ausführung unvollständig':side!=='dividend'&&currency==='EUR'&&Math.abs(Math.round(num(quantity)*price*100)-gross)>2?'Gesamtbetrag weicht vom Ausführungspreis ab':'';
+  const reason=!side?'Andere Buchungsart':!isDate(date)||!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(isin)?'Datum oder ISIN fehlt':r['Currency (Total)']!=='EUR'||feeKeys.some(k=>r['Currency ('+k+')']!=='EUR')?'Gesamtbetrag/Gebühren nicht in EUR':!Number.isSafeInteger(amount)||amount<=0?'Betrag fehlt':side!=='dividend'&&(!(price>0)||!(num(quantity)>0)||!(fx>0)||!currency)?'Ausführung unvollständig':side!=='dividend'&&currency!=='EUR'&&(fx<0.01||fx>100)?'Abgeleitete EUR-Umrechnung unplausibel':side!=='dividend'&&currency==='EUR'&&Math.abs(Math.round(num(quantity)*price*100)-gross)>2?'Gesamtbetrag weicht vom Ausführungspreis ab':'';
   const key=r.ID||[r.Time,r.Action,isin,quantity,price,r.Total].join('|');
   return {index,side,date,time:r.Time,isin,quantity,price,currency,feeAmount,fx,amount,key,reason,name:r.Name||r.Ticker,symbol:r.Ticker};
  });

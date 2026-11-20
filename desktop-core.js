@@ -6,7 +6,7 @@ export function planEdit(state,id,month,value,scope,end=month){
  if(scope==='month')end=month;
  if(end<month||end>monthAdd(s.anchor,599))throw Error('Zeitraum prüfen.');
  e.planOverrides||={};
- for(let m=month;m<=end;m=monthAdd(m,1))if(m===month||due(e,m)||Object.hasOwn(e.planOverrides,m))e.planOverrides[m]=value;
+ for(let m=month;m<=end;m=monthAdd(m,1))if(m===month||due(e,m)||Object.hasOwn(e.planOverrides,m)){const effective=due(e,m)?e.amount:0;if(!Object.hasOwn(e.planOverrides,m)&&value===effective)continue;e.planOverrides[m]=value;}
  return s;
 }
 export function stages(r){
@@ -28,7 +28,7 @@ export function comparePortfolio(p,from,to,levels=[]){
  if(snaps.length<2)throw Error('Mindestens zwei gespeicherte Tagesstände im Zeitraum erforderlich.');
  const first=snaps[0],last=snaps.at(-1),events=p.events.filter(e=>e.date>first.date&&e.date<=last.date);
  for(const s of snaps)for(const type of ['contribution','withdrawal','distribution','fee']){
-  const sum=p.events.filter(e=>e.date<=s.date).reduce((n,e)=>n+(e.type===type?e.amount:0)+(type==='fee'?(e.feeAmount||0):0),0);
+  const sum=p.events.filter(e=>e.date<=s.date).reduce((n,e)=>n+(e.type===type?e.amount:0)+(type==='fee'?(e.feeAmount||0):0),0)+(type==='contribution'?p.assets.reduce((n,a)=>n+(a.cashOpeningValue!==undefined&&a.cashOpeningDate<=s.date?a.cashOpeningValue:0),0):0);
   if(s[type]!==sum)throw Error('Buchungen wurden nach einem Tagesstand verändert. Tagesstände prüfen.');
  }
  const cashflow=e=>{
