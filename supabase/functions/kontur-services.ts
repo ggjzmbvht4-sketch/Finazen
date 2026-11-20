@@ -300,28 +300,71 @@ function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,
     // B2 (R2): Vollverkäufe (entfernte oder auf null gerundete Ziele) zuerst
     // buchen, damit ihre Kosten die Kaufdeckelung unten bereits belasten.
     for(const old of model.positions.filter(x=>!keptIds.has(x.id)&&(!rec.positions.some(p=>p.id===x.id)||naturalTarget(x.id)===0))){const m=market.find(x=>x.id===old.id);transactions.push({type:'model-trade',id:old.id,units:-old.units,priceEUR:marketPrice(m),priceAsOf:m.indicators.asOf,amountCents:-old.valueCents,costCents:book(old.id,old.valueCents)});}
+    // B2 (R3): Zweiter Schritt vor jedem Kauf — alle verbleibenden Bestände
+    // auf ihren gedeckten Grundwert buchen (gehaltene Positionen unverändert,
+    // Reduktionen auf den Zielwert, Erhöhungen zunächst auf den Altbestand)
+    // und Teilverkäufe samt angenommenen Kosten ausführen. Teilverkäufe
+    // werden dabei gegen das verbleibende Cash geprüft: Passt der gehaltene
+    // Restwert inklusive Kosten nicht, wird weiter reduziert (bis hin zum
+    // Vollverkauf, Erlös fließt zu Cash) — niemals cashCents < 0. Erst
+    // danach laufen Käufe gegen das dann tatsächlich freie Modell-Cash —
+    // frühere Käufe können so weder die Kosten späterer Verkäufe noch
+    // gehaltene Restwerte verdrängen (Kosten-Reserve durch Reihenfolge).
+    const increases=[];
     for(const p of rec.positions){
+      const valueCents=Math.floor(capital*p.weightBps/10000);
+      if(keptIds.has(p.id)){const old=model.positions.find(x=>x.id===p.id);next.push(old);spent+=old.valueCents;continue;}
+      if(!valueCents)continue; // auf null gerundete Ziele wurden oben verkauft
       const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m),old=model.positions.find(x=>x.id===p.id);
-      let valueCents=Math.floor(capital*p.weightBps/10000);
-      if(keptIds.has(p.id)){next.push(old);spent+=old.valueCents;continue;}
-      const oldUnits=old?.units||0;
-      if(!old||valueCents>old.valueCents){
-        // B2 (R2): Käufe so deckeln, dass das Modell-Cash nach Abzug aller
-        // angenommenen Kosten nicht negativ wird (1 Cent Sicherheitsabstand
-        // für die Cent-Rundung der Kosten).
-        const bps=tradeCostBps(universe.find(x=>x.id===p.id));
-        const maxBuy=Math.max(0,Math.floor((capital-spent-costTotal-1)/(1+bps/10000)));
-        if(valueCents>maxBuy)valueCents=maxBuy;
-      }
-      if(!valueCents){
-        // D2 (R2): Keine Nullwert-Positionen und keine 0-Trades; ein Bestand
-        // bleibt unverändert, wenn der Kauf nur an der Cash-Deckelung
-        // scheitert (Ziel > 0, aber kein Cash mehr).
-        if(old&&naturalTarget(p.id)>0){next.push(old);spent+=old.valueCents;}
+      if(old){
+        const base=Math.min(valueCents,old.valueCents);
+        if(valueCents<old.valueCents){
+          // Teilverkauf: gehaltener Restwert und angenommene Kosten müssen
+          // ins verbleibende Cash passen; sonst wird so weit reduziert, bis
+          // es passt (bis hin zum Vollverkauf, wenn selbst der Restwert 0
+          // die Kosten nicht deckt).
+          const bps=tradeCostBps(universe.find(x=>x.id===p.id));
+          let kept=valueCents;
+          if(capital-spent-kept-costTotal-Math.round((old.valueCents-kept)*bps/10000)<0)
+            kept=Math.min(valueCents,Math.floor(((capital-spent-costTotal-1)*10000-old.valueCents*bps)/(10000-bps)));
+          if(kept>0){
+            const units=kept/(priceEUR*100);
+            next.push({id:p.id,units,valueCents:kept,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})});spent+=kept;
+            const amountCents=Math.round((units-old.units)*priceEUR*100);
+            if(amountCents)transactions.push({type:'model-trade',id:p.id,units:units-old.units,priceEUR,priceAsOf:m.indicators.asOf,amountCents,costCents:book(p.id,amountCents)});
+          }else{
+            transactions.push({type:'model-trade',id:p.id,units:-old.units,priceEUR,priceAsOf:m.indicators.asOf,amountCents:-old.valueCents,costCents:book(old.id,old.valueCents)});
+          }
+          continue;
+        }
+        // Erhöhung oder unveränderter Bestand: gedeckten Grundwert buchen;
+        // der Kaufanteil folgt im dritten Schritt unten.
+        increases.push({p,old,base,target:valueCents});
+        next.push({id:p.id,units:base/(priceEUR*100),valueCents:base,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})});spent+=base;
         continue;
       }
-      const units=valueCents/(priceEUR*100);
-      next.push({id:p.id,units,valueCents,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})});spent+=valueCents;
+      increases.push({p,old:null,base:0,target:valueCents});
+    }
+    // B2 (R2): Käufe so deckeln, dass das Modell-Cash nach Abzug aller
+    // angenommenen Kosten nicht negativ wird (1 Cent Sicherheitsabstand
+    // für die Cent-Rundung der Kosten). Jeder Kauf wird inklusive seiner
+    // geschätzten Kosten gegen das verbleibende Cash geprüft; die Kosten
+    // aller Verkäufe und die gehaltenen Restwerte sind zu diesem Zeitpunkt
+    // bereits gebucht (B2/R3).
+    for(const {p,old,base,target} of increases){
+      const bps=tradeCostBps(universe.find(x=>x.id===p.id));
+      const buy=Math.min(target-base,Math.max(0,Math.floor((capital-spent-costTotal-1)/(1+bps/10000))));
+      // D2 (R2): Keine Nullwert-Positionen und keine 0-Trades; ein Bestand
+      // bleibt unverändert, wenn der Kauf nur an der Cash-Deckelung
+      // scheitert (Ziel > 0, aber kein Cash mehr).
+      if(!buy)continue;
+      const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m);
+      const finalValue=base+buy,units=finalValue/(priceEUR*100);
+      const pos=old?next.find(x=>x.id===p.id):null;
+      if(pos){pos.units=units;pos.valueCents=finalValue;}
+      else next.push({id:p.id,units,valueCents:finalValue,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})});
+      spent+=buy;
+      const oldUnits=old?.units||0;
       if(units!==oldUnits){const amountCents=Math.round((units-oldUnits)*priceEUR*100);transactions.push({type:'model-trade',id:p.id,units:units-oldUnits,priceEUR,priceAsOf:m.indicators.asOf,amountCents,costCents:book(p.id,amountCents)});}
     }
     model.positions=next;model.cashCents=capital-spent;
@@ -341,7 +384,9 @@ function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,
     }
   }
   // B8: Kosten aus dem Modellwert buchen (Cash-Seite) und kumuliert mitführen;
-  // durch die Deckelung oben bleibt cashCents >= 0 (B2/R2).
+  // durch die Deckelung oben bleibt cashCents >= 0 (B2/R2: jeder Kauf inklusive
+  // angenommener Kosten gegen das verbleibende Cash gedeckelt; B2/R3: auch der
+  // Altbestand-Fallback hält diese Invariante — sonst wird verkauft).
   if(costTotal){model.cashCents-=costTotal;model.valueCents-=costTotal;model.costsCents=(model.costsCents||0)+costTotal;}
   model.recommendation=rec;model.universe=universe;model.asOf=date;model.costAssumption='Modell mit synthetischen Bruchstücken und bereinigten Kursreihen (Ausschüttungen reinvestiert); 0 € Ordergebühr. Angenommene Kosten je Modell-Trade: ETF 0,10 %, Aktie 0,25 %, zuzüglich 0,15 % FX bei Titeln in Fremdwährung — bereits vom Modellwert abgezogen. Individuelle Spreads und Steuern sind nicht simuliert. Steuerhinweis: Trading212 führt keine deutsche Abgeltungsteuer ab — Erträge sind selbst über die Anlage KAP/KAP-INV zu erklären (kein Freistellungsauftrag möglich; bei thesaurierenden ETFs fällt jährlich die Vorabpauschale an). Nachgeholte Sparraten werden zum aktuellen verfügbaren Modellkurs angelegt. Die Referenzportfolios werden ohne angenommene Handelskosten gerechnet (konservativ für den Vergleich).';
   model.history=[...model.history.filter(x=>x.date!==date),{date,valueCents:model.valueCents,paidCents:model.paidCents}].slice(-3660);
