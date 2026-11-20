@@ -1,11 +1,3 @@
 const berlinMonth=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit'}).format(new Date());
 export function accountEmptyPlan(){return {schema:1,name:'Meine Finanzplanung',anchor:berlinMonth(),openingCash:0,entries:[],reserves:[],actuals:{},notes:[],portfolio:{version:1,assets:[],instruments:[],events:[],quotes:[],compositions:[],snapshots:[]},updatedAt:new Date().toISOString()};}
-export function accountDeleteInvestment(state,id,keepChildren=false){
- const next=structuredClone(state),p=next.portfolio,ids=new Set([id]);
- if(keepChildren)for(const a of p.assets)if(a.parentId===id)a.parentId='';else for(const a of p.assets)if(a.parentId===id)ids.add(a.id);
- p.assets=p.assets.filter(a=>!ids.has(a.id));p.instruments=p.instruments.filter(i=>p.assets.some(a=>a.instrumentId===i.id));
- p.events=p.events.filter(e=>!ids.has(e.assetId));p.quotes=p.quotes.filter(q=>!ids.has(q.assetId));p.compositions=p.compositions.filter(c=>!ids.has(c.pieId));
- next.entries=(next.entries||[]).filter(e=>!p.assets.some(a=>(a.planEntryIds||[]).includes(e.id)));
- for(const a of p.assets)a.planEntryIds=(a.planEntryIds||[]).filter(x=>next.entries.some(e=>e.id===x));
- next.updatedAt=new Date().toISOString();return {data:next,assetIds:[...ids]};
-}
+export function accountDeleteInvestment(plan,id,keepChildren=false){const next=structuredClone(plan),p=next.portfolio,a=p.assets.find(a=>a.id===id);if(!a)throw Error('Investment nicht gefunden.');const ids=new Set([id]);if(a.kind==='pie'){for(const child of p.assets.filter(x=>x.parentId===id))if(keepChildren){child.parentId='';child.targetBps=0;}else ids.add(child.id);}p.assets=p.assets.filter(a=>!ids.has(a.id));const removedTrades=new Set(p.events.filter(e=>ids.has(e.assetId)).map(e=>e.id));p.events=p.events.filter(e=>!ids.has(e.assetId));for(const e of p.events){if(ids.has(e.cashAssetId))delete e.cashAssetId;if(removedTrades.has(e.linkedTradeId)){delete e.linkedTradeId;e.note='Historische Cash-Bewegung · Investment entfernt';}}const used=new Set(p.assets.map(a=>a.instrumentId).filter(Boolean));p.instruments=p.instruments.filter(i=>used.has(i.id));p.quotes=p.quotes.filter(q=>!ids.has(q.assetId)&&(!q.instrumentId||used.has(q.instrumentId)));p.compositions=p.compositions.filter(h=>!ids.has(h.pieId));if(next.dividends)next.dividends=next.dividends.filter(x=>!ids.has(x.assetId));return {data:next,assetIds:[...ids],name:a.name};}
