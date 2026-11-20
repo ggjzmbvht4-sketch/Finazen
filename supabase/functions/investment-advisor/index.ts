@@ -28,6 +28,29 @@ function createDB(env,fetcher=fetch){return async(path,method='GET',body)=>{
  const response=await fetcher(env.url+'/rest/v1/'+path,{method,headers:{apikey:env.serviceKey,Authorization:'Bearer '+env.serviceKey,'Content-Type':'application/json',Prefer:'return=representation,resolution=merge-duplicates'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
  const data=await boundedJSON(response,8*1024*1024);if(!response.ok)throw new ServiceError('DATABASE_ERROR',safeMessage(data?.message||'Datenbank nicht erreichbar. Migrationen prüfen.'),{retryable:response.status>=500,status:response.status});return data;
 };}
+// --- Nutzer-Schlüssel aus den App-Einstellungen (Tabelle v12_integration_secrets,
+// geschrieben von kontur-services save-keys; AES-256-GCM mit
+// SHA-256(INTEGRATION_SECRETS_KEY || WIKIFOLIO_SESSION_ENCRYPTION_KEY)).
+// TODO(P2): mit _shared konsolidieren — die Entschlüsselung ist aktuell in
+// kontur-services.ts und hier dupliziert (getrennte Function-Bundles).
+function b64ToBytes(value){const binary=atob(value),bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);return bytes;}
+async function openText(secret,ciphertext,nonce){const raw=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(secret||''));const key=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['decrypt']);return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64ToBytes(nonce)},key,b64ToBytes(ciphertext)));}
+// OpenRouter-Schlüssel des Nutzers; Vorrang vor dem Function-Secret
+// OPENROUTER_API_KEY. Fehlende Row oder Entschlüsselungsfehler → '' (fail-safe).
+async function userOpenRouterKey(env,db,ownerId){
+ if(!ownerId||!env.secretsKey)return '';
+ try{
+  const row=(await db('v12_integration_secrets?owner_id=eq.'+ownerId+'&select=ciphertext,nonce'))[0];
+  if(!row?.ciphertext)return '';
+  const parsed=JSON.parse(await openText(env.secretsKey,row.ciphertext,row.nonce));
+  return typeof parsed?.openrouterKey==='string'&&parsed.openrouterKey.trim()?parsed.openrouterKey.trim():'';
+ }catch{return '';}
+}
+// Request-abhängiges Env; das globale env bleibt unverändert (Concurrency).
+async function reqEnv(env,db,ownerId){
+ const key=await userOpenRouterKey(env,db,ownerId);
+ return key?{...env,openrouterKey:key}:env;
+}
 // R2: advisorDay ist in die managed-core-Sektion umgezogen (B12/Frischeprüfung
 // in activeScore) und bleibt als Funktionsdeklaration global sichtbar.
 
@@ -1373,7 +1396,9 @@ function createHandler(input,fetcher=fetch){
      if(Date.now()-dispatchStart>100000){results.push({strategy:null,status:'skipped',error:'Zeitbudget des Laufs erreicht; verbleibende Mandate folgen im nächsten Lauf.'});break;}
      const row=await db('rpc/claim_advisor_profile','POST',{});
      if(!row)break;
-     results.push(row.profile?.mandateVersion===2?await careCycle(env,db,fetcher,row):await legacyScheduledRun(env,db,fetcher,row));
+     // Nutzer-eigener OpenRouter-Schlüssel (App-Einstellungen) hat Vorrang.
+     const renv=await reqEnv(env,db,row.owner_id);
+     results.push(row.profile?.mandateVersion===2?await careCycle(renv,db,fetcher,row):await legacyScheduledRun(renv,db,fetcher,row));
     }
     return json({processed:results.length,results});
    }
@@ -1383,18 +1408,21 @@ function createHandler(input,fetcher=fetch){
    let u;try{u=await fetch(env.url+'/auth/v1/user',{headers:{apikey:env.serviceKey,Authorization:auth},signal:AbortSignal.timeout(10000)});}catch{return json({error:'Authentifizierung fehlgeschlagen.'},401);}
    if(!u.ok)return json({error:'Authentifizierung fehlgeschlagen.'},401);
    const owner=(await u.json()).id;
+   // Nutzer-eigener OpenRouter-Schlüssel (App-Einstellungen) hat Vorrang vor
+   // dem Function-Secret; renv wird an alle Aktionen weitergereicht.
+   const renv=await reqEnv(env,db,owner);
    switch(data.action){
-    case 'list':return json(await actionList(env,db,owner,data));
-    case 'save-profile':return json(await actionSaveProfile(env,db,owner,data));
-    case 'run':return json(await actionRun(env,db,fetcher,owner,data));
-    case 'adopt':return json(await actionAdopt(env,db,owner,data));
-    case 'market':return json(await actionMarket(env,db,fetcher,owner));
-    case 'search-market':return json(await actionSearchMarket(env,fetcher,owner,data));
-    case 'budget-draft':return json(await actionBudgetDraft(env,db,fetcher,owner,data));
-    case 'wealth-status':return json(await actionWealthStatus(env,db,owner,data));
-    case 'wealth-history':return json(await actionWealthHistory(env,db,owner,data));
-    case 'activate-wealth':return json(await actionWealthSetEnabled(env,db,fetcher,owner,data,true));
-    case 'pause-wealth':return json(await actionWealthSetEnabled(env,db,fetcher,owner,data,false));
+    case 'list':return json(await actionList(renv,db,owner,data));
+    case 'save-profile':return json(await actionSaveProfile(renv,db,owner,data));
+    case 'run':return json(await actionRun(renv,db,fetcher,owner,data));
+    case 'adopt':return json(await actionAdopt(renv,db,owner,data));
+    case 'market':return json(await actionMarket(renv,db,fetcher,owner));
+    case 'search-market':return json(await actionSearchMarket(renv,fetcher,owner,data));
+    case 'budget-draft':return json(await actionBudgetDraft(renv,db,fetcher,owner,data));
+    case 'wealth-status':return json(await actionWealthStatus(renv,db,owner,data));
+    case 'wealth-history':return json(await actionWealthHistory(renv,db,owner,data));
+    case 'activate-wealth':return json(await actionWealthSetEnabled(renv,db,fetcher,owner,data,true));
+    case 'pause-wealth':return json(await actionWealthSetEnabled(renv,db,fetcher,owner,data,false));
     default:throw new ServiceError('ACTION_UNKNOWN','Unbekannte Aktion.');
    }
   }catch(e){
@@ -1411,6 +1439,7 @@ Deno.serve(createHandler({
  twelveDataKey:Deno.env.get('TWELVE_DATA_API_KEY')||'',
  newsKey:Deno.env.get('FINNHUB_API_KEY')||'',
  cronSecret:Deno.env.get('ADVISOR_CRON_SECRET')||'',
+ secretsKey:Deno.env.get('INTEGRATION_SECRETS_KEY')||Deno.env.get('WIKIFOLIO_SESSION_ENCRYPTION_KEY')||'',
  billingOwner:Deno.env.get('TRADING212_OWNER_ID')||'',
  enforceBudget:true,
  allowedOrigins:(Deno.env.get('ALLOWED_ORIGINS')||'').split(',').map(s=>s.trim()).filter(Boolean)
