@@ -82,11 +82,20 @@ async function db(path: string, method = "GET", body?: unknown) {
 }
 
 // Entspricht accountEmptyPlan() in account-core.js.
+// R6: Planungsbeginn aus dem aktuellen Monat in Europe/Berlin statt UTC,
+// damit ein Reset kurz nach Monatswechsel (MESZ = UTC+2) nicht den
+// Vormonat als Anchor setzt. Ergebnisformat: YYYY-MM.
+function berlinMonth(): string {
+  const parts = new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return get("year") + "-" + get("month");
+}
+
 function emptyPlan() {
   return {
     schema: 1,
     name: "Meine Finanzplanung",
-    anchor: new Date().toISOString().slice(0, 7),
+    anchor: berlinMonth(),
     openingCash: 0,
     entries: [],
     reserves: [],
