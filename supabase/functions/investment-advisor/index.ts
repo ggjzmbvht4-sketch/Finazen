@@ -384,28 +384,71 @@ function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,
     // B2 (R2): Vollverkäufe (entfernte oder auf null gerundete Ziele) zuerst
     // buchen, damit ihre Kosten die Kaufdeckelung unten bereits belasten.
     for(const old of model.positions.filter(x=>!keptIds.has(x.id)&&(!rec.positions.some(p=>p.id===x.id)||naturalTarget(x.id)===0))){const m=market.find(x=>x.id===old.id);transactions.push({type:'model-trade',id:old.id,units:-old.units,priceEUR:marketPrice(m),priceAsOf:m.indicators.asOf,amountCents:-old.valueCents,costCents:book(old.id,old.valueCents)});}
+    // B2 (R3): Zweiter Schritt vor jedem Kauf — alle verbleibenden Bestände
+    // auf ihren gedeckten Grundwert buchen (gehaltene Positionen unverändert,
+    // Reduktionen auf den Zielwert, Erhöhungen zunächst auf den Altbestand)
+    // und Teilverkäufe samt angenommenen Kosten ausführen. Teilverkäufe
+    // werden dabei gegen das verbleibende Cash geprüft: Passt der gehaltene
+    // Restwert inklusive Kosten nicht, wird weiter reduziert (bis hin zum
+    // Vollverkauf, Erlös fließt zu Cash) — niemals cashCents < 0. Erst
+    // danach laufen Käufe gegen das dann tatsächlich freie Modell-Cash —
+    // frühere Käufe können so weder die Kosten späterer Verkäufe noch
+    // gehaltene Restwerte verdrängen (Kosten-Reserve durch Reihenfolge).
+    const increases=[];
     for(const p of rec.positions){
+      const valueCents=Math.floor(capital*p.weightBps/10000);
+      if(keptIds.has(p.id)){const old=model.positions.find(x=>x.id===p.id);next.push(old);spent+=old.valueCents;continue;}
+      if(!valueCents)continue; // auf null gerundete Ziele wurden oben verkauft
       const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m),old=model.positions.find(x=>x.id===p.id);
-      let valueCents=Math.floor(capital*p.weightBps/10000);
-      if(keptIds.has(p.id)){next.push(old);spent+=old.valueCents;continue;}
-      const oldUnits=old?.units||0;
-      if(!old||valueCents>old.valueCents){
-        // B2 (R2): Käufe so deckeln, dass das Modell-Cash nach Abzug aller
-        // angenommenen Kosten nicht negativ wird (1 Cent Sicherheitsabstand
-        // für die Cent-Rundung der Kosten).
-        const bps=tradeCostBps(universe.find(x=>x.id===p.id));
-        const maxBuy=Math.max(0,Math.floor((capital-spent-costTotal-1)/(1+bps/10000)));
-        if(valueCents>maxBuy)valueCents=maxBuy;
-      }
-      if(!valueCents){
-        // D2 (R2): Keine Nullwert-Positionen und keine 0-Trades; ein Bestand
-        // bleibt unverändert, wenn der Kauf nur an der Cash-Deckelung
-        // scheitert (Ziel > 0, aber kein Cash mehr).
-        if(old&&naturalTarget(p.id)>0){next.push(old);spent+=old.valueCents;}
+      if(old){
+        const base=Math.min(valueCents,old.valueCents);
+        if(valueCents<old.valueCents){
+          // Teilverkauf: gehaltener Restwert und angenommene Kosten müssen
+          // ins verbleibende Cash passen; sonst wird so weit reduziert, bis
+          // es passt (bis hin zum Vollverkauf, wenn selbst der Restwert 0
+          // die Kosten nicht deckt).
+          const bps=tradeCostBps(universe.find(x=>x.id===p.id));
+          let kept=valueCents;
+          if(capital-spent-kept-costTotal-Math.round((old.valueCents-kept)*bps/10000)<0)
+            kept=Math.min(valueCents,Math.floor(((capital-spent-costTotal-1)*10000-old.valueCents*bps)/(10000-bps)));
+          if(kept>0){
+            const units=kept/(priceEUR*100);
+            next.push({id:p.id,units,valueCents:kept,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})});spent+=kept;
+            const amountCents=Math.round((units-old.units)*priceEUR*100);
+            if(amountCents)transactions.push({type:'model-trade',id:p.id,units:units-old.units,priceEUR,priceAsOf:m.indicators.asOf,amountCents,costCents:book(p.id,amountCents)});
+          }else{
+            transactions.push({type:'model-trade',id:p.id,units:-old.units,priceEUR,priceAsOf:m.indicators.asOf,amountCents:-old.valueCents,costCents:book(old.id,old.valueCents)});
+          }
+          continue;
+        }
+        // Erhöhung oder unveränderter Bestand: gedeckten Grundwert buchen;
+        // der Kaufanteil folgt im dritten Schritt unten.
+        increases.push({p,old,base,target:valueCents});
+        next.push({id:p.id,units:base/(priceEUR*100),valueCents:base,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})});spent+=base;
         continue;
       }
-      const units=valueCents/(priceEUR*100);
-      next.push({id:p.id,units,valueCents,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})});spent+=valueCents;
+      increases.push({p,old:null,base:0,target:valueCents});
+    }
+    // B2 (R2): Käufe so deckeln, dass das Modell-Cash nach Abzug aller
+    // angenommenen Kosten nicht negativ wird (1 Cent Sicherheitsabstand
+    // für die Cent-Rundung der Kosten). Jeder Kauf wird inklusive seiner
+    // geschätzten Kosten gegen das verbleibende Cash geprüft; die Kosten
+    // aller Verkäufe und die gehaltenen Restwerte sind zu diesem Zeitpunkt
+    // bereits gebucht (B2/R3).
+    for(const {p,old,base,target} of increases){
+      const bps=tradeCostBps(universe.find(x=>x.id===p.id));
+      const buy=Math.min(target-base,Math.max(0,Math.floor((capital-spent-costTotal-1)/(1+bps/10000))));
+      // D2 (R2): Keine Nullwert-Positionen und keine 0-Trades; ein Bestand
+      // bleibt unverändert, wenn der Kauf nur an der Cash-Deckelung
+      // scheitert (Ziel > 0, aber kein Cash mehr).
+      if(!buy)continue;
+      const m=market.find(x=>x.id===p.id),priceEUR=marketPrice(m);
+      const finalValue=base+buy,units=finalValue/(priceEUR*100);
+      const pos=old?next.find(x=>x.id===p.id):null;
+      if(pos){pos.units=units;pos.valueCents=finalValue;}
+      else next.push({id:p.id,units,valueCents:finalValue,priceEUR,priceAsOf:m.indicators.asOf,...(Number(m.fx)>0?{fxRate:m.fx}:{})});
+      spent+=buy;
+      const oldUnits=old?.units||0;
       if(units!==oldUnits){const amountCents=Math.round((units-oldUnits)*priceEUR*100);transactions.push({type:'model-trade',id:p.id,units:units-oldUnits,priceEUR,priceAsOf:m.indicators.asOf,amountCents,costCents:book(p.id,amountCents)});}
     }
     model.positions=next;model.cashCents=capital-spent;
@@ -425,7 +468,9 @@ function evolveModel(previous,rec,universe,market,profile,date,{rebalance=false,
     }
   }
   // B8: Kosten aus dem Modellwert buchen (Cash-Seite) und kumuliert mitführen;
-  // durch die Deckelung oben bleibt cashCents >= 0 (B2/R2).
+  // durch die Deckelung oben bleibt cashCents >= 0 (B2/R2: jeder Kauf inklusive
+  // angenommener Kosten gegen das verbleibende Cash gedeckelt; B2/R3: auch der
+  // Altbestand-Fallback hält diese Invariante — sonst wird verkauft).
   if(costTotal){model.cashCents-=costTotal;model.valueCents-=costTotal;model.costsCents=(model.costsCents||0)+costTotal;}
   model.recommendation=rec;model.universe=universe;model.asOf=date;model.costAssumption='Modell mit synthetischen Bruchstücken und bereinigten Kursreihen (Ausschüttungen reinvestiert); 0 € Ordergebühr. Angenommene Kosten je Modell-Trade: ETF 0,10 %, Aktie 0,25 %, zuzüglich 0,15 % FX bei Titeln in Fremdwährung — bereits vom Modellwert abgezogen. Individuelle Spreads und Steuern sind nicht simuliert. Steuerhinweis: Trading212 führt keine deutsche Abgeltungsteuer ab — Erträge sind selbst über die Anlage KAP/KAP-INV zu erklären (kein Freistellungsauftrag möglich; bei thesaurierenden ETFs fällt jährlich die Vorabpauschale an). Nachgeholte Sparraten werden zum aktuellen verfügbaren Modellkurs angelegt. Die Referenzportfolios werden ohne angenommene Handelskosten gerechnet (konservativ für den Vergleich).';
   model.history=[...model.history.filter(x=>x.date!==date),{date,valueCents:model.valueCents,paidCents:model.paidCents}].slice(-3660);
@@ -870,11 +915,24 @@ async function actionWealthSetEnabled(env,db,fetcher,owner,data,enabled){
   // B4 (R2): updated_at-Guard gegen ein Lost-Update mit einem gleichzeitig
   // laufenden Betreuungszyklus — schreiben nur, wenn die Zeile seit dem
   // Lesen unverändert ist; bei Konflikt einmal neu lesen und wiederholen.
+  // B4c (R3): Der depositThrough-Move darf die bis zum Pausieren fälligen,
+  // noch nicht gebuchten Sparraten nicht still verwerfen — sie werden als
+  // pendingDepositCents am Modell markiert und vom nächsten aktiven
+  // Betreuungszyklus nachgebucht (careCycle). Das deckt auch den Race ab,
+  // in dem ein gleichzeitig laufender Zyklus seine Einzahlungsbuchung wegen
+  // der Pause verwirft: Die markierte Summe bleibt erhalten. Scheitert der
+  // Move auch im zweiten Versuch, bleibt depositThrough unverändert — der
+  // nächste Zyklus holt die Einzahlung dann über depositDue nach (der
+  // unveränderte Stichtag ist damit der Marker; es entsteht nur die von
+  // B11 vermiedene Klumpen-Nachholung, nichts geht verloren).
   for(let attempt=0;attempt<2;attempt++){
    const modelRow=(await db('wealth_models?owner_id=eq.'+owner+'&strategy_key=eq.'+key))[0];
    if(!modelRow?.model)break;
    const guard=modelRow.updated_at?'&updated_at=eq.'+encodeURIComponent(modelRow.updated_at):'';
-   const written=await db('wealth_models?owner_id=eq.'+owner+'&strategy_key=eq.'+key+guard,'PATCH',{model:{...modelRow.model,depositThrough:advisorDay()},updated_at:new Date().toISOString()});
+   const pending=depositDue(modelRow.model,profile,advisorDay());
+   const movedModel={...modelRow.model,depositThrough:advisorDay()};
+   if(pending>0)movedModel.pendingDepositCents=(Number(movedModel.pendingDepositCents)||0)+pending;
+   const written=await db('wealth_models?owner_id=eq.'+owner+'&strategy_key=eq.'+key+guard,'PATCH',{model:movedModel,updated_at:new Date().toISOString()});
    if(!modelRow.updated_at||Array.isArray(written)&&written.length>0)break;
   }
  }
@@ -914,7 +972,20 @@ async function buildManagedUniverse(env,db,fetcher,owner,profile,model){
   // in einer Sackgasse zu enden. Ohne Score ist der Titel beim Rebalancing
   // nicht auswählbar (activeScore null), bleibt aber bewertbar.
   const heldRest=rows.filter(r=>held.has(r.isin)&&!chosen.some(c=>c.isin===r.isin));
-  universe=[...chosen,...heldRest].map(r=>{
+  // B7 (R3): Admin-deaktivierte (active=false), aber noch gehaltene
+  // Instrumente fehlen in rows komplett — ohne sie wirft markModel und das
+  // Mandat landet nach drei Strikes in VALUATION_STUCK ohne Ausweg. Für
+  // gehaltene ISINs ohne Treffer daher eine zweite Abfrage OHNE active-
+  // Filter (gleiche Tabelle, nur per ISIN): Der Bestand bleibt bewertbar
+  // und kann im Rebalance verkauft werden. Kauf-eligible werden diese
+  // Titel nicht — Facts/Score werden entfernt, damit liefert activeScore
+  // null (gleiches Muster wie gehaltene Titel ohne Analyse, s. o.).
+  // Instrumente, die gar nicht mehr in der Tabelle existieren, bleiben
+  // weiter ein Fehler (echte Datenkorruption).
+  const coveredHeld=new Set([...chosen,...heldRest].map(r=>r.isin));
+  const missingHeld=[...held].filter(isin=>!coveredHeld.has(isin));
+  const heldInactive=missingHeld.length?await db('v12_instruments?owner_id=eq.'+owner+'&status=eq.analysed&isin=in.('+missingHeld.join(',')+')&select=isin,name,provider_ticker,listings,facts,score,sector&limit=1000'):[];
+  universe=[...chosen,...heldRest,...heldInactive.map(r=>({...r,facts:null,score:null}))].map(r=>{
    const listing=(r.listings||[]).find(l=>l.currency==='EUR')||r.listings?.[0]||{};
    const f=r.facts||{};
    return {id:r.isin,isin:r.isin,name:r.name,kind:'stock',group:'stock',currency:listing.currency||f.currency||'EUR',brokerConfirmed:Boolean(listing.ticker),brokerTicker:listing.ticker||null,source:f.source||null,sector:r.sector||f.sector||null,yahoo:r.provider_ticker||null,fxKnown:f.fx,
@@ -1042,11 +1113,18 @@ async function careCycle(env,db,fetcher,profileRow){
   const regimeDistanceBps=regimeDistance(refHistory);
   const regimeChanged=Boolean(model&&regime!==prevRegime);
   const dueDeposit=depositDue(model,profile,date);
+  // B4c (R3): Eine beim Pausieren markierte, noch nicht gebuchte Einzahlung
+  // (pendingDepositCents, gesetzt in actionWealthSetEnabled) wird mit der
+  // fälligen Sparrate nachgeholt; der Marker wird nach erfolgreicher
+  // Buchung entfernt (unten). Bei fälliger Re-Bestätigung ruhen
+  // Einzahlungen — der Marker bleibt dann erhalten.
+  const pendingDeposit=Number.isSafeInteger(model?.pendingDepositCents)&&model.pendingDepositCents>0?model.pendingDepositCents:0;
+  const depositTotal=dueDeposit+pendingDeposit;
   // W10 (R1) + B11 (v18): Dormant-Guard vor der Bewertung — Modelle ohne
   // Kapital und ohne fällige Einzahlung werden nicht bewertet, nicht
   // dauerhaft rebalanciert und lösen keinen KI-Kommentar aus; next_due
   // dreht im normalen Rhythmus weiter.
-  const dormant=Boolean(model&&model.valueCents===0&&dueDeposit===0);
+  const dormant=Boolean(model&&model.valueCents===0&&depositTotal===0);
   // B9 (v18): Bewertungsfehler als VALUATION_INCOMPLETE führen, damit der
   // Fehlerpfad nach drei aufeinanderfolgenden Fehlversuchen in den
   // Einrichtungspfad (setup_error) eskaliert statt endlos zu retryen.
@@ -1092,7 +1170,11 @@ async function careCycle(env,db,fetcher,profileRow){
    }
   }
   let transactions=[];
-  if(!confirmationDue&&(rebalance||dueDeposit>0||!model)){const out=evolveModel(model,rec,universe,market,profile,date,{rebalance,deposit:dueDeposit});model=out.model;transactions=out.transactions;}
+  if(!confirmationDue&&(rebalance||depositTotal>0||!model)){
+   const out=evolveModel(model,rec,universe,market,profile,date,{rebalance,deposit:depositTotal});model=out.model;transactions=out.transactions;
+   // B4c (R3): Markierte Einzahlung ist jetzt gebucht — Marker entfernen.
+   if(pendingDeposit)delete model.pendingDepositCents;
+  }
   model.reviewedOn=rebalance?date:(model.reviewedOn||model.startedOn);
   // B1: Regime-Zustand am Modell persistieren (nicht im Mandat — löst
   // bewusst kein MANDATE_CHANGED aus). D14 (R2): stale kennzeichnet, dass die
@@ -1167,6 +1249,10 @@ async function careCycle(env,db,fetcher,profileRow){
   // B4 (R2): Wurde die Betreuung während dieses Laufs pausiert, das Modell
   // nicht zurückschreiben — die Pause hat depositThrough bereits mitbewegt
   // und ein Write hier würde das rückgängig machen (Lost-Update).
+  // B4c (R3): Eine in diesem Lauf gebuchte, nun verworfene Einzahlung geht
+  // nicht verloren — die Pause hat die fällige Summe als pendingDepositCents
+  // am Modell markiert (bzw. depositThrough unverändert gelassen, dann holt
+  // depositDue sie nach); der nächste aktive Zyklus bucht sie nach.
   const enabledNow=(await db('advisor_profiles?owner_id=eq.'+owner+'&strategy_key=eq.'+key+'&select=enabled'))[0]?.enabled;
   if(enabledNow===false){
    await db('advisor_jobs?id=eq.'+job.id,'PATCH',{status:'completed',result:{reason:'Betreuung wurde während des Laufs pausiert; Modelländerungen dieses Laufs wurden verworfen.',transactions:[]},finished_at:new Date().toISOString()});
@@ -1179,7 +1265,7 @@ async function careCycle(env,db,fetcher,profileRow){
   const storedModel={...model,market:market.map(m=>{if(m.error||!m.indicators)return {...m};const slim={...m,indicators:{...m.indicators}};delete slim.indicators.history;delete slim.fxHistory;return slim;})};
   await db('wealth_models?on_conflict=owner_id,strategy_key','POST',{owner_id:owner,strategy_key:key,model:storedModel,updated_at:new Date().toISOString()});
   await db('advisor_profiles?owner_id=eq.'+owner+'&strategy_key=eq.'+key,'PATCH',{next_due:new Date(Date.now()+(profile.intervalDays||1)*86400000).toISOString(),setup_error:confirmationDue?{code:'CONFIRMATION_DUE',message:confirmationNotice,retryable:false,status:null,requestId:null,retryAfter:0}:null});
-  const reason=confirmationDue?'Geeignetheitsprüfung zur erneuten Bestätigung fällig: Bewertung ohne Anpassung.':!modelRow?'Erste Modellstrategie erstellt und Zielgewichte festgelegt.':dormant?'Modell ohne investiertes Kapital und ohne fällige Einzahlung: Bewertung ohne Anpassung.':rebalance&&dueDeposit?'Strategieprüfung: Zielgewichte innerhalb deiner Grenzen angepasst und fällige Modell-Sparrate angelegt.':rebalance?'Strategieprüfung: Zielgewichte innerhalb deiner Grenzen angepasst.':dueDeposit?'Geplante Modell-Sparrate angelegt und Gewichte geprüft.':'Tägliche Bewertung: Modell innerhalb der Grenzen, keine Anpassung.';
+  const reason=confirmationDue?'Geeignetheitsprüfung zur erneuten Bestätigung fällig: Bewertung ohne Anpassung.':!modelRow?'Erste Modellstrategie erstellt und Zielgewichte festgelegt.':dormant?'Modell ohne investiertes Kapital und ohne fällige Einzahlung: Bewertung ohne Anpassung.':rebalance&&depositTotal?'Strategieprüfung: Zielgewichte innerhalb deiner Grenzen angepasst und fällige Modell-Sparrate angelegt.':rebalance?'Strategieprüfung: Zielgewichte innerhalb deiner Grenzen angepasst.':depositTotal?'Geplante Modell-Sparrate angelegt und Gewichte geprüft.':'Tägliche Bewertung: Modell innerhalb der Grenzen, keine Anpassung.';
   const result={reason,transactions,costAssumption:model.costAssumption,coverage};
   // B10 (v18): Verworfene Kurs-Ausreißer dieses Laufs protokollieren.
   const outlierRows=market.filter(m=>m.indicators?.outliers>0).map(m=>({id:m.id,dropped:m.indicators.outliers}));
@@ -1268,6 +1354,20 @@ function createHandler(input,fetcher=fetch){
     // Betreuungszyklus setzt danach die echte nächste Fälligkeit.
     // B8 (R2): Wall-Clock-Budget — nach 100 s werden keine weiteren Mandate
     // gestartet; der nächste Cron-Lauf übernimmt sie (Claim ist gesperrt).
+    // B8 (R3): Zombie-Reaper — einmal je Dispatch-Lauf hängengebliebene
+    // 'running'-Jobs einsammeln, deren started_at (Rückfall: created_at)
+    // älter als 10 Minuten ist (begrenzt auf 20 je Lauf, best effort: ein
+    // Fehler hier darf den Dispatch nicht brechen). Der Status-Filter im
+    // PATCH verhindert, dass ein zwischenzeitlich abgeschlossener Job
+    // überschrieben wird.
+    try{
+     const reapedCutoff=Date.now()-600000;
+     let runningJobs;
+     try{runningJobs=await db('advisor_jobs?status=eq.running&select=id,started_at,created_at&order=created_at&limit=20');}
+     catch{runningJobs=await db('advisor_jobs?status=eq.running&select=id,created_at&order=created_at&limit=20');}
+     for(const zombie of (runningJobs||[]).filter(j=>{const t=Date.parse(j.started_at||j.created_at||'');return Number.isFinite(t)&&t<reapedCutoff;}))
+      await db('advisor_jobs?id=eq.'+zombie.id+'&status=eq.running','PATCH',{status:'failed',error:'reaped: wall-clock exceeded',finished_at:new Date().toISOString()});
+    }catch{}
     const results=[],dispatchStart=Date.now();
     for(let i=0;i<5;i++){
      if(Date.now()-dispatchStart>100000){results.push({strategy:null,status:'skipped',error:'Zeitbudget des Laufs erreicht; verbleibende Mandate folgen im nächsten Lauf.'});break;}
