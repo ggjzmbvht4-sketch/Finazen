@@ -1,5 +1,5 @@
-:root[data-theme=light]{--bg:#f4f6f8;--surface:#fff;--line:#e0e6eb;--text:#172b38;--muted:#62717e}
-:root[data-theme=dark]{--bg:#0e1820;--surface:#172630;--line:#344b59;--text:#edf4f7;--muted:#b3c4cd}
+
+
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 .sidebar{width:210px;padding:28px 18px}.main-shell{margin-left:210px}.main-shell main{padding:32px 36px 60px}.topbar{height:68px;border-bottom:1px solid var(--line)}
 .page-heading h1{font-size:32px;letter-spacing:-1.1px;line-height:1.2}.page-heading .eyebrow{font-size:11px;letter-spacing:1.5px}
@@ -16,3 +16,5 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 details>summary{cursor:pointer}form[id^=advisor-]{margin-top:20px}form[id^=advisor-] .checkbox{margin:14px 0}.pie-expanded .card-title>div:last-child{display:flex;align-items:center;gap:18px}
 @media(max-width:1250px){.advisor-layout{grid-template-columns:160px minmax(0,1fr)}.main-shell main{padding:24px}.strategy-hero{flex-wrap:wrap}.overview-metrics{gap:10px}.advisor-options{grid-template-columns:1fr}}
 .decision-banner{padding:18px 20px;background:var(--mint);border-left:3px solid var(--accent);margin:18px 0;border-radius:5px}.decision-banner strong{font-size:17px}.decision-banner p{margin:8px 0 0}
+@media(max-width:900px){.advisor-layout{grid-template-columns:1fr}.strategy-list{position:static;flex-direction:row;overflow:auto}}
+@media(max-width:600px){.overview-metrics{grid-template-columns:1fr;gap:10px}}
