@@ -47,34 +47,41 @@ E-Mail: <strong>[[DEINE E-MAIL]]</strong></p>
 <div class="card">
 <h3 style="margin-top:0;color:var(--accent)">Lokal in deinem Browser (Standard)</h3>
 <p>Ohne Anmeldung liegen alle Planungsdaten (Einträge, Rücklagen, Investments, Ist-Buchungen) ausschließlich im lokalen Speicher (localStorage/IndexedDB) deines Browsers auf deinem Gerät. Es findet keine Übertragung statt.</p>
-<h3 style="color:var(--accent)">Supabase-Cloud (nur bei Anmeldung)</h3>
-<p>Wenn du dich freiwillig anmeldest, werden folgende Daten in einer Supabase-Datenbank (Serverstandort Frankfurt am Main, EU) gespeichert:</p>
+<h3 style="color:var(--accent)">Cloudflare-Cloud (nur bei Anmeldung)</h3>
+<p>Wenn du dich freiwillig anmeldest, werden folgende Daten durch einen Cloudflare Worker in Cloudflare D1 und — bei Nutzung des Berichtsspeichers — in Cloudflare R2 gespeichert:</p>
 <ul>
-<li>E-Mail-Adresse und Passwort-Hash (Supabase Auth)</li>
+<li>E-Mail-Adresse sowie ein kryptografischer Passwort-Hash mit individuellem Salt; Klartextpasswörter werden nicht gespeichert</li>
+<li>Sitzungs- und Wiederherstellungstoken ausschließlich als Hashwerte</li>
 <li>Dein Finanzplan: Einträge, Rücklagen, Anlageziele, Ist-Buchungen</li>
-<li>Depot- und Portfoliodaten, die du selbst erfasst oder importierst</li>
+<li>Depot-, Portfoliodaten und Einstellungen, die du selbst erfasst oder importierst</li>
+<li>Bei Nutzung der Berichtsfunktion: hochgeladene PDF-, TXT- oder MD-Dateien in R2 sowie extrahierter Text, Metadaten und Analyseergebnisse in D1</li>
 </ul>
-<p>Zugriff erfolgt ausschließlich über dein Konto (Row Level Security). Eine Weitergabe an Dritte findet nicht statt.</p>
+<p>Die D1-Datenbank und der R2-Bucket sind für die EU-Jurisdiktion beziehungsweise den EU-Standort konfiguriert. Cloudflare betreibt ein weltweites Netzwerk; die technische Anfrageverarbeitung durch Workers kann daher auch außerhalb dieses Speicherorts erfolgen. Der Zugriff auf Konto-, Plan-, Integrations- und Berichtsdaten ist an deine Anmeldung und eine serverseitige Prüfung der Konto-Zugehörigkeit gebunden. Ein allgemeiner Datenbankzugriff ist nicht öffentlich freigegeben.</p>
 <h3 style="color:var(--accent)">Serverseitige Schlüssel (Secrets)</h3>
-<p>Trading212-API-Schlüssel sowie Wikifolio-Zugangsdaten werden — falls du sie hinterlegst — ausschließlich serverseitig als verschlüsselte Secrets in Supabase gespeichert und niemals in der App oder im Browser abgelegt.</p>
+<p>Trading212-API-Schlüssel sowie Wikifolio-Zugangsdaten werden — falls du sie hinterlegst — ausschließlich serverseitig verarbeitet. In D1 abgelegte Integrations- und Sitzungsdaten werden verschlüsselt gespeichert; die dafür benötigten Schlüssel liegen als Cloudflare-Worker-Secrets vor und nicht im App-Code.</p>
+<h3 style="color:var(--accent)">E-Mail-Versand über Resend</h3>
+<p>Ist Resend eingerichtet, erhält Resend bei der Registrierung oder Passwort-Wiederherstellung deine E-Mail-Adresse sowie den Bestätigungslink beziehungsweise Wiederherstellungscode. Ohne Resend werden neue Konten automatisch bestätigt; eine Passwort-Wiederherstellung per E-Mail ist dann nicht verfügbar.</p>
 <h3 style="color:var(--accent)">Speicherdauer</h3>
-<p>Deine Cloud-Daten werden gespeichert, bis du dein Konto löschst (Einstellungen → Datenverwaltung → „Kontur-Daten zurücksetzen“) oder die Daten selbst entfernst. Lokale Daten verbleiben auf deinem Gerät, bis du sie über die Browser-Einstellungen löschst.</p>
+<p>Deine Cloud-Daten werden gespeichert, bis du dein Konto löschst, den Berichtsspeicher beziehungsweise einzelne Daten entfernst oder deine Daten zurücksetzt. Abgelaufene Sitzungen und Bestätigungstoken sowie alte technische Lauf-, Kosten- und Cache-Daten werden regelmäßig automatisch bereinigt. Lokale Daten verbleiben auf deinem Gerät, bis du sie über die Browser-Einstellungen löschst.</p>
 </div>
 
 <h2>3. Zwecke und Rechtsgrundlagen</h2>
 <ul>
-<li><strong>Speicherung und Synchronisierung deines Finanzplans</strong> über Supabase (Auth, Datenbank): Verarbeitung zur Bereitstellung der von dir gewünschten App-Funktionen — Art. 6 Abs. 1 lit. b DSGVO (Vertrag/vertragsähnliches Nutzungsverhältnis).</li>
-<li><strong>KI-Funktionen über OpenRouter</strong> (Strategieanalysen, Einordnungen): erst nach deiner ausdrücklichen Einwilligung — Art. 6 Abs. 1 lit. a DSGVO. Die Einwilligung kannst du jederzeit mit Wirkung für die Zukunft widerrufen, indem du die Funktion nicht weiter nutzt beziehungsweise die Betreuung deaktivierst.</li>
+<li><strong>Speicherung und Synchronisierung deines Finanzplans</strong> über Cloudflare Workers und D1 einschließlich Authentifizierung: Verarbeitung zur Bereitstellung der von dir gewünschten App-Funktionen — Art. 6 Abs. 1 lit. b DSGVO (Vertrag/vertragsähnliches Nutzungsverhältnis).</li>
+<li><strong>Private Berichtsdateien</strong> in Cloudflare R2 sowie deren Textextraktion und Verwaltung: Bereitstellung der von dir ausdrücklich aufgerufenen Berichtsfunktion — Art. 6 Abs. 1 lit. b DSGVO.</li>
+<li><strong>Bestätigungs- und Wiederherstellungs-E-Mails über Resend</strong>, sofern eingerichtet und von dir ausgelöst: Bereitstellung und Absicherung des Kontos — Art. 6 Abs. 1 lit. b und lit. f DSGVO.</li>
+<li><strong>KI-Funktionen über OpenRouter</strong> (Strategieanalysen, Einordnungen und optionale Berichtsanalysen): erst nach deiner ausdrücklichen Einwilligung beziehungsweise deinem ausdrücklichen Auftrag in der jeweiligen Funktion — Art. 6 Abs. 1 lit. a DSGVO. Die Einwilligung kannst du jederzeit mit Wirkung für die Zukunft widerrufen, indem du die Funktion nicht weiter nutzt beziehungsweise die Betreuung deaktivierst.</li>
 <li><strong>Broker-Anbindung Trading212 und Wikifolio-Anbindung</strong> (Abruf von Konto-, Positions- und Portfoliodaten sowie das Schreiben von Pie-Zielgewichten bei Trading212): ebenfalls nur nach deiner ausdrücklichen Einwilligung durch das Hinterlegen der Zugangsdaten — Art. 6 Abs. 1 lit. a DSGVO.</li>
 </ul>
 
 <h2>4. Externe Dienste und Empfänger bei Nutzung bestimmter Funktionen</h2>
 <ul>
 <li><strong>Kursabfragen:</strong> Abfragen von Wertpapierkursen und Kennzahlen erfolgen über Yahoo Finance, die Frankfurter Börse (Börse Frankfurt), SEC-XBRL (US-Unternehmensdaten) sowie optional Finnhub und Twelve Data. Übertragen werden dabei nur Wertpapierkennungen (Ticker/ISIN), keine personenbezogenen Daten.</li>
-<li><strong>OpenRouter (KI-Analysen):</strong> Für KI-Analysen werden erst nach deiner ausdrücklichen Einwilligung ausschließlich aggregierte Angaben an OpenRouter übertragen — Zielgewichte, Gruppenzusammensetzung und Mandatsname, keine personenbezogenen Identifikationsdaten. Die Anfragen erfolgen mit der Einstellung <code>data_collection: deny</code>, sodass eine Datenweitergabe an Dritte durch die Anbieter-Einstellung untersagt ist und kein Training mit Nutzerdaten erfolgt. OpenRouter verarbeitet Daten in den USA (Drittland); die Übertragung erfolgt auf Grundlage deiner Einwilligung (Art. 49 Abs. 1 lit. a DSGVO i. V. m. den Garantien der Art. 44 ff. DSGVO, soweit einschlägig).</li>
+<li><strong>OpenRouter (KI-Analysen):</strong> Bei Strategie- und Advisor-Analysen werden nach deiner ausdrücklichen Einwilligung insbesondere aggregierte Angaben wie Zielgewichte, Gruppenzusammensetzung und Mandatsname übertragen. Wenn du ausdrücklich eine Berichtsanalyse startest, werden zusätzlich die Bewertungsgrundlage des ausgewählten Investments sowie Dateinamen, Kategorien, Berichtsdaten und der extrahierte Text der ausgewählten Dokumente übertragen. Diese Berichte können personenbezogene oder vertrauliche Angaben enthalten; prüfe sie deshalb vor dem Hochladen. Die Anfragen verlangen mit <code>data_collection: deny</code> Anbieter ohne Datensammlung und mit <code>require_parameters: true</code> die Einhaltung dieser Vorgabe. Die konkrete Verarbeitung einschließlich möglicher Verarbeitung in den USA oder anderen Drittländern richtet sich zusätzlich nach den Bedingungen von OpenRouter und des jeweils eingesetzten Modellanbieters.</li>
 <li><strong>Trading212:</strong> Bei aktivierter Broker-Anbindung werden über die Trading212-API Konto- und Positionsdaten abgerufen sowie — nur nach deiner separaten Freigabe der Zielpflege — Zielgewichte deiner Pies geschrieben. Es werden niemals einzelne Orders ausgelöst.</li>
 <li><strong>Wikifolio:</strong> Bei hinterlegter Anbindung meldet sich der Server mit deinen Zugangsdaten bei Wikifolio an und ruft Portfoliodaten (Zusammensetzung der verknüpften Wikifolios) ab.</li>
-<li><strong>Supabase:</strong> Hosting und Authentifizierung (siehe Abschnitt 2).</li>
+<li><strong>Cloudflare:</strong> Bereitstellung des Workers, der D1-Datenbank, des privaten R2-Berichtsspeichers und der zeitgesteuerten Hintergrundverarbeitung (siehe Abschnitt 2).</li>
+<li><strong>Resend:</strong> Versand von Bestätigungs- und Passwort-Wiederherstellungs-E-Mails, sofern eingerichtet. Dabei werden Empfängeradresse und E-Mail-Inhalt an Resend übermittelt; eine Verarbeitung außerhalb der EU beziehungsweise des EWR ist je nach Konfiguration und Anbieterbedingungen möglich.</li>
 </ul>
 
 <h2>5. Automatisierte Verarbeitung (Modellbetreuung)</h2>
@@ -93,10 +100,10 @@ E-Mail: <strong>[[DEINE E-MAIL]]</strong></p>
 <li><strong>Beschwerde:</strong> Du hast das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu beschweren.</li>
 </ul>
 
-<h2>8. Keine Weitergabe</h2>
-<p>Deine Daten werden nicht verkauft, nicht weitergegeben und nicht zu Werbezwecken genutzt. Übertragungen an die oben genannten Dienste erfolgen nur, wenn du die entsprechende Funktion aktivierst beziehungsweise ausdrücklich einwilligst (insbesondere KI-Funktionen über OpenRouter).</p>
+<h2>8. Keine Nutzung zu Werbezwecken</h2>
+<p>Deine Daten werden nicht verkauft und nicht zu Werbezwecken genutzt. Übertragungen an die oben genannten technischen Dienste erfolgen nur, soweit sie zur Bereitstellung der jeweiligen Funktion erforderlich sind und du diese Funktion aufrufst beziehungsweise aktivierst. Bei KI-Berichtsanalysen werden nur die von dir ausdrücklich ausgewählten Dokumente übermittelt.</p>
 
-<p class="note">Da diese App privat betrieben wird, gibt es kein Auftragsverarbeitungsverhältnis mit Nutzern; die Verarbeitung erfolgt im Rahmen der persönlichen Nutzung (Art. 2 Abs. 2 lit. c DSGVO / Haushaltsausnahme), soweit keine Cloud-Anmeldung erfolgt.</p>
+<p class="note">Diese Datenschutzerklärung beschreibt die aktuelle Cloudflare-Version der privat betriebenen App. Vor einer öffentlichen oder kommerziellen Bereitstellung müssen Verantwortlichenangaben, Rechtsgrundlagen und Vereinbarungen mit den eingesetzten Anbietern erneut geprüft werden.</p>
 
 <footer>
 <a href="./">← Zur App</a>

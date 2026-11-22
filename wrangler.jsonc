@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kontur-cloud",
+  "main": "cloudflare/index.ts",
+  "compatibility_date": "2026-01-01",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kontur-db",
+      "database_id": "1da27e76-e5b4-443a-9408-8f89881bbefd",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "REPORTS",
+      "bucket_name": "kontur-reports",
+      "jurisdiction": "eu"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *", "17 3 * * *"]
+  },
+  "vars": {
+    "APP_URL": "https://ggjzmbvht4-sketch.github.io/Finazen/",
+    "ALLOWED_ORIGINS": "https://ggjzmbvht4-sketch.github.io",
+    "OPENROUTER_MODEL": "anthropic/claude-haiku-5.5"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
