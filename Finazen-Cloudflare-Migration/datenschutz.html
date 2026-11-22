@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'">
+<meta name="theme-color" content="#153c35">
+<meta name="robots" content="noindex">
+<meta name="description" content="Datenschutzerklärung der App Kontur.">
+<title>Datenschutzerklärung · Kontur</title>
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<style>
+:root{--accent:#153c35;--bg:#f4f5f1;--surface:#fbfcf9;--text:#22302a;--muted:#5c6a60;--line:#dfe5d8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.65;font-size:15px}
+main{max-width:760px;margin:0 auto;padding:48px 22px 64px}
+a{color:var(--accent);font-weight:600}
+h1{color:var(--accent);font-size:30px;letter-spacing:-.5px;margin:6px 0 4px}
+h2{color:var(--accent);font-size:18px;margin:34px 0 8px}
+p,li{color:var(--text)}
+.eyebrow{font-size:11px;letter-spacing:2px;color:var(--muted);margin:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px 24px;margin-top:18px}
+ul{padding-left:20px}
+li{margin:6px 0}
+.note{background:#e7eedf;border-radius:12px;padding:14px 16px;font-size:13.5px;color:var(--accent)}
+.placeholder{background:#fdf3d7;border:1px dashed #b48542;border-radius:12px;padding:14px 16px}
+footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted);display:flex;gap:18px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<main>
+<p class="eyebrow">KONTUR · PRIVATE FINANZ-APP</p>
+<h1>Datenschutzerklärung</h1>
+<p>Diese App wird privat und nicht kommerziell betrieben. Sie dient ausschließlich der persönlichen Finanzplanung. Stand: November 2026.</p>
+
+<h2>1. Verantwortlicher</h2>
+<!-- WICHTIG: Die Platzhalter [[DEIN NAME]] und [[DEINE E-MAIL]] müssen ersetzt werden,
+     bevor diese App Dritten zugänglich gemacht wird (Art. 13 Abs. 1 lit. a DSGVO). -->
+<div class="placeholder">
+<p>Verantwortlich im Sinne der DSGVO ist:</p>
+<p><strong>[[DEIN NAME]]</strong><br>
+E-Mail: <strong>[[DEINE E-MAIL]]</strong></p>
+</div>
+<p>Es besteht kein kommerzielles Angebot und keine öffentliche Vermarktung.</p>
+
+<h2>2. Wo deine Daten gespeichert werden</h2>
+<div class="card">
+<h3 style="margin-top:0;color:var(--accent)">Lokal in deinem Browser (Standard)</h3>
+<p>Ohne Anmeldung liegen alle Planungsdaten (Einträge, Rücklagen, Investments, Ist-Buchungen) ausschließlich im lokalen Speicher (localStorage/IndexedDB) deines Browsers auf deinem Gerät. Es findet keine Übertragung statt.</p>
+<h3 style="color:var(--accent)">Cloudflare-Cloud (nur bei Anmeldung)</h3>
+<p>Wenn du dich freiwillig anmeldest, werden folgende Daten durch einen Cloudflare Worker in Cloudflare D1 und — bei Nutzung des Berichtsspeichers — in Cloudflare R2 gespeichert:</p>
+<ul>
+<li>E-Mail-Adresse sowie ein kryptografischer Passwort-Hash mit individuellem Salt; Klartextpasswörter werden nicht gespeichert</li>
+<li>Sitzungs- und Wiederherstellungstoken ausschließlich als Hashwerte</li>
+<li>Dein Finanzplan: Einträge, Rücklagen, Anlageziele, Ist-Buchungen</li>
+<li>Depot-, Portfoliodaten und Einstellungen, die du selbst erfasst oder importierst</li>
+<li>Bei Nutzung der Berichtsfunktion: hochgeladene PDF-, TXT- oder MD-Dateien in R2 sowie extrahierter Text, Metadaten und Analyseergebnisse in D1</li>
+</ul>
+<p>Die D1-Datenbank und der R2-Bucket sind für die EU-Jurisdiktion beziehungsweise den EU-Standort konfiguriert. Cloudflare betreibt ein weltweites Netzwerk; die technische Anfrageverarbeitung durch Workers kann daher auch außerhalb dieses Speicherorts erfolgen. Der Zugriff auf Konto-, Plan-, Integrations- und Berichtsdaten ist an deine Anmeldung und eine serverseitige Prüfung der Konto-Zugehörigkeit gebunden. Ein allgemeiner Datenbankzugriff ist nicht öffentlich freigegeben.</p>
+<h3 style="color:var(--accent)">Serverseitige Schlüssel (Secrets)</h3>
+<p>Trading212-API-Schlüssel sowie Wikifolio-Zugangsdaten werden — falls du sie hinterlegst — ausschließlich serverseitig verarbeitet. In D1 abgelegte Integrations- und Sitzungsdaten werden verschlüsselt gespeichert; die dafür benötigten Schlüssel liegen als Cloudflare-Worker-Secrets vor und nicht im App-Code.</p>
+<h3 style="color:var(--accent)">E-Mail-Versand über Resend</h3>
+<p>Ist Resend eingerichtet, erhält Resend bei der Registrierung oder Passwort-Wiederherstellung deine E-Mail-Adresse sowie den Bestätigungslink beziehungsweise Wiederherstellungscode. Ohne Resend werden neue Konten automatisch bestätigt; eine Passwort-Wiederherstellung per E-Mail ist dann nicht verfügbar.</p>
+<h3 style="color:var(--accent)">Speicherdauer</h3>
+<p>Deine Cloud-Daten werden gespeichert, bis du dein Konto löschst, den Berichtsspeicher beziehungsweise einzelne Daten entfernst oder deine Daten zurücksetzt. Abgelaufene Sitzungen und Bestätigungstoken sowie alte technische Lauf-, Kosten- und Cache-Daten werden regelmäßig automatisch bereinigt. Lokale Daten verbleiben auf deinem Gerät, bis du sie über die Browser-Einstellungen löschst.</p>
+</div>
+
+<h2>3. Zwecke und Rechtsgrundlagen</h2>
+<ul>
+<li><strong>Speicherung und Synchronisierung deines Finanzplans</strong> über Cloudflare Workers und D1 einschließlich Authentifizierung: Verarbeitung zur Bereitstellung der von dir gewünschten App-Funktionen — Art. 6 Abs. 1 lit. b DSGVO (Vertrag/vertragsähnliches Nutzungsverhältnis).</li>
+<li><strong>Private Berichtsdateien</strong> in Cloudflare R2 sowie deren Textextraktion und Verwaltung: Bereitstellung der von dir ausdrücklich aufgerufenen Berichtsfunktion — Art. 6 Abs. 1 lit. b DSGVO.</li>
+<li><strong>Bestätigungs- und Wiederherstellungs-E-Mails über Resend</strong>, sofern eingerichtet und von dir ausgelöst: Bereitstellung und Absicherung des Kontos — Art. 6 Abs. 1 lit. b und lit. f DSGVO.</li>
+<li><strong>KI-Funktionen über OpenRouter</strong> (Strategieanalysen, Einordnungen und optionale Berichtsanalysen): erst nach deiner ausdrücklichen Einwilligung beziehungsweise deinem ausdrücklichen Auftrag in der jeweiligen Funktion — Art. 6 Abs. 1 lit. a DSGVO. Die Einwilligung kannst du jederzeit mit Wirkung für die Zukunft widerrufen, indem du die Funktion nicht weiter nutzt beziehungsweise die Betreuung deaktivierst.</li>
+<li><strong>Broker-Anbindung Trading212 und Wikifolio-Anbindung</strong> (Abruf von Konto-, Positions- und Portfoliodaten sowie das Schreiben von Pie-Zielgewichten bei Trading212): ebenfalls nur nach deiner ausdrücklichen Einwilligung durch das Hinterlegen der Zugangsdaten — Art. 6 Abs. 1 lit. a DSGVO.</li>
+</ul>
+
+<h2>4. Externe Dienste und Empfänger bei Nutzung bestimmter Funktionen</h2>
+<ul>
+<li><strong>Kursabfragen:</strong> Abfragen von Wertpapierkursen und Kennzahlen erfolgen über Yahoo Finance, die Frankfurter Börse (Börse Frankfurt), SEC-XBRL (US-Unternehmensdaten) sowie optional Finnhub und Twelve Data. Übertragen werden dabei nur Wertpapierkennungen (Ticker/ISIN), keine personenbezogenen Daten.</li>
+<li><strong>OpenRouter (KI-Analysen):</strong> Bei Strategie- und Advisor-Analysen werden nach deiner ausdrücklichen Einwilligung insbesondere aggregierte Angaben wie Zielgewichte, Gruppenzusammensetzung und Mandatsname übertragen. Wenn du ausdrücklich eine Berichtsanalyse startest, werden zusätzlich die Bewertungsgrundlage des ausgewählten Investments sowie Dateinamen, Kategorien, Berichtsdaten und der extrahierte Text der ausgewählten Dokumente übertragen. Diese Berichte können personenbezogene oder vertrauliche Angaben enthalten; prüfe sie deshalb vor dem Hochladen. Die Anfragen verlangen mit <code>data_collection: deny</code> Anbieter ohne Datensammlung und mit <code>require_parameters: true</code> die Einhaltung dieser Vorgabe. Die konkrete Verarbeitung einschließlich möglicher Verarbeitung in den USA oder anderen Drittländern richtet sich zusätzlich nach den Bedingungen von OpenRouter und des jeweils eingesetzten Modellanbieters.</li>
+<li><strong>Trading212:</strong> Bei aktivierter Broker-Anbindung werden über die Trading212-API Konto- und Positionsdaten abgerufen sowie — nur nach deiner separaten Freigabe der Zielpflege — Zielgewichte deiner Pies geschrieben. Es werden niemals einzelne Orders ausgelöst.</li>
+<li><strong>Wikifolio:</strong> Bei hinterlegter Anbindung meldet sich der Server mit deinen Zugangsdaten bei Wikifolio an und ruft Portfoliodaten (Zusammensetzung der verknüpften Wikifolios) ab.</li>
+<li><strong>Cloudflare:</strong> Bereitstellung des Workers, der D1-Datenbank, des privaten R2-Berichtsspeichers und der zeitgesteuerten Hintergrundverarbeitung (siehe Abschnitt 2).</li>
+<li><strong>Resend:</strong> Versand von Bestätigungs- und Passwort-Wiederherstellungs-E-Mails, sofern eingerichtet. Dabei werden Empfängeradresse und E-Mail-Inhalt an Resend übermittelt; eine Verarbeitung außerhalb der EU beziehungsweise des EWR ist je nach Konfiguration und Anbieterbedingungen möglich.</li>
+</ul>
+
+<h2>5. Automatisierte Verarbeitung (Modellbetreuung)</h2>
+<p>Die Modellbetreuung und die Schreibung von Pie-Zielgewichten erfolgen vollautomatisiert auf Grundlage deines Risikoprofils und fester Regeln (Strategiegewichte nach Risikostufe, Resthorizont und Verlusttragfähigkeit; Grenzen je Titel/Branche/Währung). Dies kann die Aufteilung deiner Einzahlungen beim Broker erheblich beeinflussen. Rechtsgrundlage ist deine Einwilligung (Art. 6 Abs. 1 lit. a, Art. 22 Abs. 2 lit. a DSGVO); du kannst die Betreuung jederzeit pausieren oder beenden.</p>
+
+<h2>6. Cookies und Tracking</h2>
+<p>Diese App verwendet keine Cookies, kein Tracking, keine Analyse-Werkzeuge und keine Werbung. Der Service Worker speichert ausschließlich App-Dateien für die Offline-Nutzung im Browser-Cache.</p>
+
+<h2>7. Deine Rechte</h2>
+<ul>
+<li><strong>Auskunft:</strong> Du kannst jederzeit Auskunft über deine gespeicherten Daten verlangen. Sämtliche lokalen Daten kannst du zudem jederzeit über die Exportfunktion (JSON-Sicherung) einsehen.</li>
+<li><strong>Löschung:</strong> Die App enthält eine eingebaute Löschfunktion: Einstellungen → Datenverwaltung → „Kontur-Daten zurücksetzen“ entfernt alle Cloud-Daten deines Kontos; die Anmeldung bleibt dabei erhalten. Dein Konto samt Anmeldung und allen Server-Daten löschst du unwiderruflich über Einstellungen → Datenverwaltung → „Konto endgültig löschen“. Lokale Daten entfernst du über die Browser-Einstellungen (Website-Daten löschen).</li>
+<li><strong>Berichtigung und Datenübertragbarkeit:</strong> Alle Daten lassen sich in der App bearbeiten und als JSON/CSV exportieren.</li>
+<li><strong>Einschränkung der Verarbeitung</strong> sowie <strong>Widerspruch</strong> gegen Verarbeitungen: wende dich an die unter Abschnitt 1 genannte verantwortliche Person.</li>
+<li><strong>Widerruf von Einwilligungen:</strong> Erteilte Einwilligungen (z. B. KI-Funktionen, Broker-Anbindung) kannst du jederzeit mit Wirkung für die Zukunft widerrufen (Art. 7 Abs. 3 DSGVO), etwa durch Deaktivieren der Funktion oder Entfernen der Zugangsdaten.</li>
+<li><strong>Beschwerde:</strong> Du hast das Recht, dich bei einer Datenschutz-Aufsichtsbehörde zu beschweren.</li>
+</ul>
+
+<h2>8. Keine Nutzung zu Werbezwecken</h2>
+<p>Deine Daten werden nicht verkauft und nicht zu Werbezwecken genutzt. Übertragungen an die oben genannten technischen Dienste erfolgen nur, soweit sie zur Bereitstellung der jeweiligen Funktion erforderlich sind und du diese Funktion aufrufst beziehungsweise aktivierst. Bei KI-Berichtsanalysen werden nur die von dir ausdrücklich ausgewählten Dokumente übermittelt.</p>
+
+<p class="note">Diese Datenschutzerklärung beschreibt die aktuelle Cloudflare-Version der privat betriebenen App. Vor einer öffentlichen oder kommerziellen Bereitstellung müssen Verantwortlichenangaben, Rechtsgrundlagen und Vereinbarungen mit den eingesetzten Anbietern erneut geprüft werden.</p>
+
+<footer>
+<a href="./">← Zur App</a>
+<a href="./risikohinweise.html">Risikohinweise</a>
+<span>Private Software — keine Anlageberatung</span>
+</footer>
+</main>
+</body>
+</html>
