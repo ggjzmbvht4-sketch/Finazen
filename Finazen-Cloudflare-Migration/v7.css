@@ -1,0 +1,13 @@
+body{font-feature-settings:"tnum";background:var(--bg);color:var(--text)}
+.main-shell main{max-width:1280px;margin:auto}
+.page-heading h1{font-weight:680;letter-spacing:-.045em}
+
+
+
+.work-links{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.work-links .btn{background:var(--surface);border:1px solid var(--line)}
+.import-row{border-top:1px solid var(--line);padding:10px 0}
+
+button,select,input,textarea{font-family:inherit}.btn,select{min-height:44px}
+@media(max-width:700px){.mobile-nav button{min-width:0}.work-links{gap:6px}.work-links .btn{flex:1 1 auto}.card{min-width:0}.actions{flex-wrap:wrap}.main-shell main{overflow-wrap:anywhere}}
+.task-line{display:flex;width:100%;text-align:left;align-items:center;justify-content:space-between;padding:15px 0;gap:12px;border-bottom:1px solid var(--line)}
+.task-line span{color:var(--muted)}

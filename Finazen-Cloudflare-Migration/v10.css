@@ -1,0 +1,30 @@
+
+
+
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-weight:400}
+.page-heading h1{font-size:34px;letter-spacing:-.9px;font-weight:620}.page-heading .eyebrow{color:var(--accent)}
+.sidebar{background:var(--bg)!important;border-right:1px solid var(--line)}.sidebar .brand{color:var(--text)}.sidebar .brand-dot{color:var(--accent)}.sidebar .nav-item.active{color:var(--accent);background:var(--mint)}
+.card{border:1px solid var(--line);border-radius:10px}.btn.primary{font-weight:600}.btn{border-radius:9px}.text-btn{color:var(--green)}
+
+
+.strategy-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin:50px 0}
+.strategy-choice{text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:32px 26px;min-height:350px;display:flex;flex-direction:column;align-items:start;gap:20px;color:var(--text)}.strategy-choice:hover{border-color:var(--accent);transform:translateY(-3px)}.strategy-choice h2{font-size:25px;line-height:1.25;margin:0}.strategy-choice p{font-size:16px;line-height:1.6;color:var(--muted);margin:0}.strategy-choice strong{margin-top:auto;color:var(--accent)}
+.strategy-badge{background:var(--mint);color:var(--green);padding:5px 10px;border-radius:20px;font-size:12px}
+
+
+
+
+
+.wealth-tabs{display:flex;gap:28px;border-bottom:1px solid var(--line);margin-bottom:24px}.wealth-tabs button{padding:14px 0;border:0!important;border-bottom:3px solid transparent!important;background:transparent!important;border-radius:0;color:var(--muted)!important;text-transform:uppercase;letter-spacing:.6px;font-size:12px}
+.wealth-tabs button.active,.wealth-tabs .btn.primary{border-bottom-color:var(--accent)!important;color:var(--green)!important;background:transparent!important}
+
+.wealth-chart{width:100%;height:auto;overflow:visible;margin:15px 0}
+
+.wealth-map{position:relative;height:340px;border-radius:8px;overflow:hidden;margin:18px 0}.map-tile{position:absolute;border:1px solid var(--bg);color:#091c19;text-align:left;padding:12px;display:flex;flex-direction:column;justify-content:flex-start;overflow:hidden;min-width:24px;min-height:24px}.map-tile span{font-size:13px}.map-tile strong{font-size:19px}.map-tile:hover,.map-tile:focus-visible{filter:brightness(1.15);outline:3px solid var(--tile-text,#102b30);outline-offset:-3px;z-index:2}
+.map-legend{display:flex;gap:15px;flex-wrap:wrap;font-size:12px}.map-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}.map-empty{padding:55px;text-align:center;color:var(--muted);background:var(--bg);margin:18px 0}
+[data-highlight=true]{background:var(--mint)}[data-wealth-tab=composition] .recommendation-panel,[data-wealth-tab=composition] .care-panel{display:none}[data-wealth-tab=care] .map-panel,[data-wealth-tab=care] .holdings-panel{display:none}
+.settings-layout{display:grid;grid-template-columns:230px minmax(0,850px);gap:35px}.settings-menu{display:flex;flex-direction:column;gap:7px}.settings-menu button{text-align:left}.settings-content{min-width:0}
+.matrix-total td{color:var(--green);background:var(--mint)}.advisor-table th{background:var(--bg)}
+@media(max-width:1250px){.strategy-choices{gap:12px}.strategy-choice{padding:25px 20px}}
+.sync-badge{background:var(--surface)!important;color:var(--text)!important;border:1px solid var(--line)}.sync-badge .status-dot{flex-shrink:0}
+.strategy-hero small,.strategy-hero p{color:var(--muted)}
